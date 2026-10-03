@@ -162,43 +162,8 @@ class MainActivity : ComponentActivity() {
     /** Set when a runtime request should be followed by the All files access screen. */
     private var pendingAllFilesRequest = false
 
-    private var pendingCallPhoneNumber: String? = null
-
-    private val callPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        val number = pendingCallPhoneNumber
-        pendingCallPhoneNumber = null
-        if (isGranted && !number.isNullOrBlank()) {
-            makeDirectCall(number)
-        } else if (!number.isNullOrBlank()) {
-            openDialer(number)
-        }
-    }
-
-    fun initiateDirectCall(phoneNumber: String) {
+    fun openDialer(phoneNumber: String) {
         if (phoneNumber.isBlank()) return
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED) {
-            makeDirectCall(phoneNumber)
-        } else {
-            pendingCallPhoneNumber = phoneNumber
-            callPermissionLauncher.launch(Manifest.permission.CALL_PHONE)
-        }
-    }
-
-    private fun makeDirectCall(phoneNumber: String) {
-        try {
-            val callIntent = Intent(Intent.ACTION_CALL).apply {
-                data = Uri.parse("tel:${Uri.encode(phoneNumber)}")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            startActivity(callIntent)
-        } catch (_: Exception) {
-            openDialer(phoneNumber)
-        }
-    }
-
-    private fun openDialer(phoneNumber: String) {
         try {
             val dialIntent = Intent(Intent.ACTION_DIAL).apply {
                 data = Uri.parse("tel:${Uri.encode(phoneNumber)}")
@@ -660,7 +625,7 @@ class MainActivity : ComponentActivity() {
             if (entity is com.sushanth.poplauncher.data.model.PersonEntity) {
                 val primaryPhone = entity.phoneNumbers.firstOrNull() ?: entity.subtitle
                 if (!primaryPhone.isNullOrBlank()) {
-                    initiateDirectCall(primaryPhone)
+                    openDialer(primaryPhone)
                     return
                 }
             }

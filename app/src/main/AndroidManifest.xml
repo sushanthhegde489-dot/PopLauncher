@@ -24,9 +24,6 @@
     <!-- On-device contact search -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
 
-    <!-- Direct phone call on contact call button tap -->
-    <uses-permission android:name="android.permission.CALL_PHONE" />
-
     <!-- On-device local photos and media search -->
     <!-- Scoped storage: Use READ_EXTERNAL_STORAGE only on Android 12 and below -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />

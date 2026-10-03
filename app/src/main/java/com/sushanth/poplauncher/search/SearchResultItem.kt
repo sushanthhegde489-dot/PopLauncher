@@ -397,7 +397,7 @@ private fun PersonResultCard(
             IconButton(
                 onClick = {
                     if (!primaryPhone.isNullOrBlank()) {
-                        (context as? com.sushanth.poplauncher.MainActivity)?.initiateDirectCall(primaryPhone)
+                        (context as? com.sushanth.poplauncher.MainActivity)?.openDialer(primaryPhone)
                     } else {
                         onPrimaryClick()
                     }
