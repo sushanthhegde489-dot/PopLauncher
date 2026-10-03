@@ -45,6 +45,25 @@ class NewFeaturesUnitTest {
         assertEquals("Double Tap & Swipe Down", GestureType.DOUBLE_TAP_SWIPE_DOWN.displayName)
         assertEquals("Swipe Down", GestureType.SWIPE_DOWN.displayName)
         assertEquals("Swipe Up", GestureType.SWIPE_UP.displayName)
+        assertEquals("Two-Finger Swipe Down", GestureType.TWO_FINGER_SWIPE_DOWN.displayName)
+        assertEquals("Two-Finger Swipe Up", GestureType.TWO_FINGER_SWIPE_UP.displayName)
+        assertEquals("Pinch In", GestureType.PINCH_IN.displayName)
+        assertEquals("Pinch Out", GestureType.PINCH_OUT.displayName)
+        assertEquals("Two-Finger Tap", GestureType.TWO_FINGER_TAP.displayName)
+    }
+
+    @Test
+    fun testLauncherSettingsGestureMappings() {
+        val settings = com.sushanth.poplauncher.data.model.LauncherSettings()
+        // Verify every gesture type is in the gestures map
+        GestureType.entries.forEach { type ->
+            val config = settings.getGesture(type)
+            org.junit.Assert.assertNotNull("Gesture $type should have config", config)
+            assertEquals(config, settings.gestures[type])
+        }
+        // Verify default gestures
+        assertEquals(com.sushanth.poplauncher.data.model.GestureActionType.OPEN_SEARCH, settings.gestureSwipeDown.actionType)
+        assertEquals(com.sushanth.poplauncher.data.model.GestureActionType.OPEN_NOTIFICATION_SHADE, settings.gestureTwoFingerSwipeDown.actionType)
     }
 
     @Test

@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
@@ -314,24 +315,37 @@ fun HomeScreen(
                             .fillMaxSize()
                             .pointerInput(settings) {
                                 val touchSlop = viewConfiguration.touchSlop
+                                val swipeThreshold = touchSlop * 2.8f
+                                val pinchThreshold = touchSlop * 2.5f
+
                                 awaitEachGesture {
                                     val down = awaitFirstDown(requireUnconsumed = false)
                                     val downTime = System.currentTimeMillis()
                                     val startPos = down.position
-                                    var isDragDetected = false
-                                    var dragConsumed = false
+                                    var lastPointerPos = startPos
 
-                                    if (downTime - lastTapTime < 350L) {
+                                    val isDoubleTapCandidate = (downTime - lastTapTime < 340L)
+                                    if (isDoubleTapCandidate) {
                                         tapCount++
                                         pendingTapJob?.cancel()
                                     } else {
                                         tapCount = 1
                                         pendingTapJob?.cancel()
                                     }
+                                    val currentTapCount = tapCount
+
+                                    var isHorizontalDrag = false
+                                    var isVerticalDrag = false
+                                    var gestureFired = false
+                                    var multiTouchDetected = false
+
+                                    var initialPinchDistance = 0f
+                                    var initialMidpoint = Offset.Zero
+                                    var twoFingerDownTime = 0L
 
                                     val longPressJob = scope.launch {
                                         delay(viewConfiguration.longPressTimeoutMillis)
-                                        if (!isDragDetected) {
+                                        if (!isVerticalDrag && !isHorizontalDrag && !multiTouchDetected && !gestureFired) {
                                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                             isContextMenuOpen = true
                                             tapCount = 0
@@ -341,70 +355,206 @@ fun HomeScreen(
 
                                     while (true) {
                                         val event = awaitPointerEvent()
-                                        val current = event.changes.firstOrNull() ?: break
-                                        if (!current.pressed) {
+                                        val pressedPointers = event.changes.filter { it.pressed }
+
+                                        if (pressedPointers.isEmpty()) {
                                             longPressJob.cancel()
-                                            if (!isDragDetected && !current.isConsumed) {
-                                                lastTapTime = System.currentTimeMillis()
-                                                val currentTaps = tapCount
-                                                if (currentTaps >= 3) {
-                                                    tapCount = 0
-                                                    lastTapTime = 0L
-                                                    executeGestureAction(settings.gestureTripleTap)
-                                                } else if (currentTaps == 2) {
-                                                    pendingTapJob = scope.launch {
-                                                        delay(280L)
-                                                        tapCount = 0
-                                                        lastTapTime = 0L
-                                                        executeGestureAction(settings.gestureDoubleTap)
-                                                    }
-                                                } else if (currentTaps == 1) {
-                                                    pendingTapJob = scope.launch {
-                                                        delay(280L)
-                                                        tapCount = 0
-                                                        lastTapTime = 0L
-                                                        if (isContextMenuOpen) isContextMenuOpen = false
-                                                    }
-                                                }
-                                            } else {
-                                                tapCount = 0
-                                                lastTapTime = 0L
-                                            }
                                             break
                                         }
 
-                                        val dx = current.position.x - startPos.x
-                                        val dy = current.position.y - startPos.y
-
-                                        if (!isDragDetected && (kotlin.math.abs(dy) > touchSlop * 1.5f || kotlin.math.abs(dx) > touchSlop * 1.5f)) {
-                                            isDragDetected = true
+                                        // Multi-touch tracking (2 or more fingers)
+                                        if (pressedPointers.size >= 2) {
                                             longPressJob.cancel()
+                                            pendingTapJob?.cancel()
+                                            tapCount = 0
+                                            lastTapTime = 0L
 
-                                            if (kotlin.math.abs(dy) > kotlin.math.abs(dx) * 1.3f) {
-                                                if (tapCount >= 2) {
-                                                    tapCount = 0
-                                                    lastTapTime = 0L
-                                                    dragConsumed = true
-                                                    current.consume()
-                                                    if (dy < 0) {
-                                                        executeGestureAction(settings.gestureDoubleTapSwipeUp)
+                                            val p1 = pressedPointers[0]
+                                            val p2 = pressedPointers[1]
+                                            lastPointerPos = p1.position
+
+                                            if (!multiTouchDetected) {
+                                                multiTouchDetected = true
+                                                twoFingerDownTime = System.currentTimeMillis()
+                                                val dx = p2.position.x - p1.position.x
+                                                val dy = p2.position.y - p1.position.y
+                                                initialPinchDistance = kotlin.math.hypot(dx, dy)
+                                                initialMidpoint = Offset(
+                                                    (p1.position.x + p2.position.x) / 2f,
+                                                    (p1.position.y + p2.position.y) / 2f
+                                                )
+                                            } else if (!gestureFired) {
+                                                val dx = p2.position.x - p1.position.x
+                                                val dy = p2.position.y - p1.position.y
+                                                val currentDistance = kotlin.math.hypot(dx, dy)
+                                                val currentMid = Offset(
+                                                    (p1.position.x + p2.position.x) / 2f,
+                                                    (p1.position.y + p2.position.y) / 2f
+                                                )
+
+                                                val distDelta = currentDistance - initialPinchDistance
+                                                val midDeltaY = currentMid.y - initialMidpoint.y
+                                                val midDeltaX = currentMid.x - initialMidpoint.x
+
+                                                if (distDelta < -pinchThreshold && kotlin.math.abs(distDelta) > kotlin.math.abs(midDeltaY) * 1.15f) {
+                                                    gestureFired = true
+                                                    event.changes.forEach { it.consume() }
+                                                    executeGestureAction(settings.gesturePinchIn)
+                                                } else if (distDelta > pinchThreshold && distDelta > kotlin.math.abs(midDeltaY) * 1.15f) {
+                                                    gestureFired = true
+                                                    event.changes.forEach { it.consume() }
+                                                    executeGestureAction(settings.gesturePinchOut)
+                                                } else if (kotlin.math.abs(midDeltaY) > swipeThreshold &&
+                                                    kotlin.math.abs(midDeltaY) > kotlin.math.abs(midDeltaX) * 1.05f
+                                                ) {
+                                                    gestureFired = true
+                                                    event.changes.forEach { it.consume() }
+                                                    if (midDeltaY > 0) {
+                                                        executeGestureAction(settings.gestureTwoFingerSwipeDown)
                                                     } else {
+                                                        executeGestureAction(settings.gestureTwoFingerSwipeUp)
+                                                    }
+                                                }
+                                            }
+
+                                            if (gestureFired) {
+                                                event.changes.forEach { it.consume() }
+                                            }
+                                            continue
+                                        }
+
+                                        // Single finger tracking
+                                        val current = pressedPointers.first()
+                                        lastPointerPos = current.position
+                                        val totalDx = current.position.x - startPos.x
+                                        val totalDy = current.position.y - startPos.y
+
+                                        if (multiTouchDetected) {
+                                            continue
+                                        }
+
+                                        if (!isHorizontalDrag && !isVerticalDrag) {
+                                            val absX = kotlin.math.abs(totalDx)
+                                            val absY = kotlin.math.abs(totalDy)
+
+                                            if (absX > touchSlop && absX > absY * 1.25f) {
+                                                // Horizontal movement: allow HorizontalPager to handle page scroll
+                                                isHorizontalDrag = true
+                                                longPressJob.cancel()
+                                                pendingTapJob?.cancel()
+                                                tapCount = 0
+                                                lastTapTime = 0L
+                                            } else if (absY > touchSlop && absY > absX * 1.05f) {
+                                                // Vertical movement: lock as launcher gesture and consume
+                                                isVerticalDrag = true
+                                                longPressJob.cancel()
+                                                current.consume()
+                                            }
+                                        } else if (isVerticalDrag) {
+                                            current.consume()
+
+                                            if (!gestureFired && kotlin.math.abs(totalDy) > swipeThreshold) {
+                                                gestureFired = true
+                                                tapCount = 0
+                                                lastTapTime = 0L
+                                                if (currentTapCount >= 2) {
+                                                    if (totalDy > 0) {
                                                         executeGestureAction(settings.gestureDoubleTapSwipeDown)
+                                                    } else {
+                                                        executeGestureAction(settings.gestureDoubleTapSwipeUp)
                                                     }
                                                 } else {
-                                                    tapCount = 0
-                                                    lastTapTime = 0L
-                                                    dragConsumed = true
-                                                    current.consume()
-                                                    if (dy > 0) {
+                                                    if (totalDy > 0) {
                                                         executeGestureAction(settings.gestureSwipeDown)
                                                     } else {
                                                         executeGestureAction(settings.gestureSwipeUp)
                                                     }
                                                 }
                                             }
-                                        } else if (dragConsumed) {
-                                            current.consume()
+                                        }
+                                    }
+
+                                    longPressJob.cancel()
+
+                                    // 1. Multi-touch completion (Two-Finger Tap)
+                                    if (multiTouchDetected) {
+                                        if (!gestureFired) {
+                                            val duration = System.currentTimeMillis() - twoFingerDownTime
+                                            if (duration < 420L) {
+                                                executeGestureAction(settings.gestureTwoFingerTap)
+                                            }
+                                        }
+                                        tapCount = 0
+                                        lastTapTime = 0L
+                                        return@awaitEachGesture
+                                    }
+
+                                    // 2. Gesture already fired during continuous drag
+                                    if (gestureFired) {
+                                        tapCount = 0
+                                        lastTapTime = 0L
+                                        return@awaitEachGesture
+                                    }
+
+                                    // 3. User swiped horizontally
+                                    if (isHorizontalDrag) {
+                                        tapCount = 0
+                                        lastTapTime = 0L
+                                        return@awaitEachGesture
+                                    }
+
+                                    // 4. Quick vertical flick that ended before exceeding continuous threshold
+                                    if (isVerticalDrag) {
+                                        val finalDy = lastPointerPos.y - startPos.y
+                                        if (kotlin.math.abs(finalDy) > touchSlop * 1.7f) {
+                                            if (currentTapCount >= 2) {
+                                                if (finalDy > 0) {
+                                                    executeGestureAction(settings.gestureDoubleTapSwipeDown)
+                                                } else {
+                                                    executeGestureAction(settings.gestureDoubleTapSwipeUp)
+                                                }
+                                            } else {
+                                                if (finalDy > 0) {
+                                                    executeGestureAction(settings.gestureSwipeDown)
+                                                } else {
+                                                    executeGestureAction(settings.gestureSwipeUp)
+                                                }
+                                            }
+                                        }
+                                        tapCount = 0
+                                        lastTapTime = 0L
+                                        return@awaitEachGesture
+                                    }
+
+                                    // 5. Clean tap release without drag
+                                    lastTapTime = System.currentTimeMillis()
+                                    if (tapCount >= 3) {
+                                        tapCount = 0
+                                        lastTapTime = 0L
+                                        pendingTapJob?.cancel()
+                                        executeGestureAction(settings.gestureTripleTap)
+                                    } else if (tapCount == 2) {
+                                        val hasTripleTapAction = settings.gestureTripleTap.actionType != GestureActionType.NONE
+                                        pendingTapJob = scope.launch {
+                                            delay(if (hasTripleTapAction) 240L else 140L)
+                                            tapCount = 0
+                                            lastTapTime = 0L
+                                            executeGestureAction(settings.gestureDoubleTap)
+                                        }
+                                    } else if (tapCount == 1) {
+                                        val hasDoubleTapAction = settings.gestureDoubleTap.actionType != GestureActionType.NONE ||
+                                                settings.gestureDoubleTapSwipeUp.actionType != GestureActionType.NONE ||
+                                                settings.gestureDoubleTapSwipeDown.actionType != GestureActionType.NONE ||
+                                                settings.gestureTripleTap.actionType != GestureActionType.NONE
+                                        pendingTapJob = scope.launch {
+                                            if (hasDoubleTapAction) {
+                                                delay(250L)
+                                            }
+                                            tapCount = 0
+                                            lastTapTime = 0L
+                                            if (isContextMenuOpen) {
+                                                isContextMenuOpen = false
+                                            }
                                         }
                                     }
                                 }

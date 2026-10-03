@@ -5,8 +5,13 @@ enum class GestureType(val label: String, val description: String) {
     TRIPLE_TAP("Triple Tap", "Triple tap on empty space"),
     DOUBLE_TAP_SWIPE_UP("Double Tap & Swipe Up", "Double tap then swipe upward"),
     DOUBLE_TAP_SWIPE_DOWN("Double Tap & Swipe Down", "Double tap then swipe downward"),
-    SWIPE_DOWN("Swipe Down", "Swipe downward on empty space"),
-    SWIPE_UP("Swipe Up", "Swipe upward on empty space");
+    SWIPE_DOWN("Swipe Down", "Swipe downward with one finger"),
+    SWIPE_UP("Swipe Up", "Swipe upward with one finger"),
+    TWO_FINGER_SWIPE_DOWN("Two-Finger Swipe Down", "Swipe downward with two fingers"),
+    TWO_FINGER_SWIPE_UP("Two-Finger Swipe Up", "Swipe upward with two fingers"),
+    PINCH_IN("Pinch In", "Pinch inward with two fingers"),
+    PINCH_OUT("Pinch Out", "Spread outward with two fingers"),
+    TWO_FINGER_TAP("Two-Finger Tap", "Tap with two fingers simultaneously");
 
     val displayName: String get() = label
 }

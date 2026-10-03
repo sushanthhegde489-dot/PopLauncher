@@ -74,6 +74,23 @@ class SettingsRepository(context: Context) {
         val gestureSwipeUp = com.sushanth.poplauncher.data.model.GestureConfig.fromSerialized(
             prefs.getString(KEY_GESTURE_SWIPE_UP, null)
         )
+        val gestureTwoFingerSwipeDown = prefs.getString(KEY_GESTURE_TWO_FINGER_SWIPE_DOWN, null)?.let {
+            com.sushanth.poplauncher.data.model.GestureConfig.fromSerialized(it)
+        } ?: com.sushanth.poplauncher.data.model.GestureConfig(
+            actionType = com.sushanth.poplauncher.data.model.GestureActionType.OPEN_NOTIFICATION_SHADE
+        )
+        val gestureTwoFingerSwipeUp = com.sushanth.poplauncher.data.model.GestureConfig.fromSerialized(
+            prefs.getString(KEY_GESTURE_TWO_FINGER_SWIPE_UP, null)
+        )
+        val gesturePinchIn = com.sushanth.poplauncher.data.model.GestureConfig.fromSerialized(
+            prefs.getString(KEY_GESTURE_PINCH_IN, null)
+        )
+        val gesturePinchOut = com.sushanth.poplauncher.data.model.GestureConfig.fromSerialized(
+            prefs.getString(KEY_GESTURE_PINCH_OUT, null)
+        )
+        val gestureTwoFingerTap = com.sushanth.poplauncher.data.model.GestureConfig.fromSerialized(
+            prefs.getString(KEY_GESTURE_TWO_FINGER_TAP, null)
+        )
 
         return LauncherSettings(
             frictionAppPackages = frictionPackages,
@@ -101,7 +118,12 @@ class SettingsRepository(context: Context) {
             gestureDoubleTapSwipeUp = gestureDoubleTapSwipeUp,
             gestureDoubleTapSwipeDown = gestureDoubleTapSwipeDown,
             gestureSwipeDown = gestureSwipeDown,
-            gestureSwipeUp = gestureSwipeUp
+            gestureSwipeUp = gestureSwipeUp,
+            gestureTwoFingerSwipeDown = gestureTwoFingerSwipeDown,
+            gestureTwoFingerSwipeUp = gestureTwoFingerSwipeUp,
+            gesturePinchIn = gesturePinchIn,
+            gesturePinchOut = gesturePinchOut,
+            gestureTwoFingerTap = gestureTwoFingerTap
         )
     }
 
@@ -268,6 +290,11 @@ class SettingsRepository(context: Context) {
             com.sushanth.poplauncher.data.model.GestureType.DOUBLE_TAP_SWIPE_DOWN -> KEY_GESTURE_DOUBLE_TAP_SWIPE_DOWN
             com.sushanth.poplauncher.data.model.GestureType.SWIPE_DOWN -> KEY_GESTURE_SWIPE_DOWN
             com.sushanth.poplauncher.data.model.GestureType.SWIPE_UP -> KEY_GESTURE_SWIPE_UP
+            com.sushanth.poplauncher.data.model.GestureType.TWO_FINGER_SWIPE_DOWN -> KEY_GESTURE_TWO_FINGER_SWIPE_DOWN
+            com.sushanth.poplauncher.data.model.GestureType.TWO_FINGER_SWIPE_UP -> KEY_GESTURE_TWO_FINGER_SWIPE_UP
+            com.sushanth.poplauncher.data.model.GestureType.PINCH_IN -> KEY_GESTURE_PINCH_IN
+            com.sushanth.poplauncher.data.model.GestureType.PINCH_OUT -> KEY_GESTURE_PINCH_OUT
+            com.sushanth.poplauncher.data.model.GestureType.TWO_FINGER_TAP -> KEY_GESTURE_TWO_FINGER_TAP
         }
         prefs.edit().putString(key, serialized).apply()
         _settings.value = when (gestureType) {
@@ -277,6 +304,11 @@ class SettingsRepository(context: Context) {
             com.sushanth.poplauncher.data.model.GestureType.DOUBLE_TAP_SWIPE_DOWN -> _settings.value.copy(gestureDoubleTapSwipeDown = config)
             com.sushanth.poplauncher.data.model.GestureType.SWIPE_DOWN -> _settings.value.copy(gestureSwipeDown = config)
             com.sushanth.poplauncher.data.model.GestureType.SWIPE_UP -> _settings.value.copy(gestureSwipeUp = config)
+            com.sushanth.poplauncher.data.model.GestureType.TWO_FINGER_SWIPE_DOWN -> _settings.value.copy(gestureTwoFingerSwipeDown = config)
+            com.sushanth.poplauncher.data.model.GestureType.TWO_FINGER_SWIPE_UP -> _settings.value.copy(gestureTwoFingerSwipeUp = config)
+            com.sushanth.poplauncher.data.model.GestureType.PINCH_IN -> _settings.value.copy(gesturePinchIn = config)
+            com.sushanth.poplauncher.data.model.GestureType.PINCH_OUT -> _settings.value.copy(gesturePinchOut = config)
+            com.sushanth.poplauncher.data.model.GestureType.TWO_FINGER_TAP -> _settings.value.copy(gestureTwoFingerTap = config)
         }
     }
 
@@ -350,6 +382,11 @@ class SettingsRepository(context: Context) {
         private const val KEY_GESTURE_DOUBLE_TAP_SWIPE_DOWN = "gesture_double_tap_swipe_down"
         private const val KEY_GESTURE_SWIPE_DOWN = "gesture_swipe_down"
         private const val KEY_GESTURE_SWIPE_UP = "gesture_swipe_up"
+        private const val KEY_GESTURE_TWO_FINGER_SWIPE_DOWN = "gesture_two_finger_swipe_down"
+        private const val KEY_GESTURE_TWO_FINGER_SWIPE_UP = "gesture_two_finger_swipe_up"
+        private const val KEY_GESTURE_PINCH_IN = "gesture_pinch_in"
+        private const val KEY_GESTURE_PINCH_OUT = "gesture_pinch_out"
+        private const val KEY_GESTURE_TWO_FINGER_TAP = "gesture_two_finger_tap"
 
         val DEFAULT_DISTRACTING_PACKAGES = setOf(
             "com.instagram.android", "com.google.android.youtube", "com.twitter.android",

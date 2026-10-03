@@ -63,7 +63,12 @@ data class LauncherSettings(
     val gestureDoubleTapSwipeUp: GestureConfig = GestureConfig(actionType = GestureActionType.NONE),
     val gestureDoubleTapSwipeDown: GestureConfig = GestureConfig(actionType = GestureActionType.NONE),
     val gestureSwipeDown: GestureConfig = GestureConfig(actionType = GestureActionType.OPEN_SEARCH),
-    val gestureSwipeUp: GestureConfig = GestureConfig(actionType = GestureActionType.NONE)
+    val gestureSwipeUp: GestureConfig = GestureConfig(actionType = GestureActionType.NONE),
+    val gestureTwoFingerSwipeDown: GestureConfig = GestureConfig(actionType = GestureActionType.OPEN_NOTIFICATION_SHADE),
+    val gestureTwoFingerSwipeUp: GestureConfig = GestureConfig(actionType = GestureActionType.NONE),
+    val gesturePinchIn: GestureConfig = GestureConfig(actionType = GestureActionType.NONE),
+    val gesturePinchOut: GestureConfig = GestureConfig(actionType = GestureActionType.NONE),
+    val gestureTwoFingerTap: GestureConfig = GestureConfig(actionType = GestureActionType.NONE)
 ) {
     val gestures: Map<GestureType, GestureConfig>
         get() = mapOf(
@@ -72,7 +77,12 @@ data class LauncherSettings(
             GestureType.DOUBLE_TAP_SWIPE_UP to gestureDoubleTapSwipeUp,
             GestureType.DOUBLE_TAP_SWIPE_DOWN to gestureDoubleTapSwipeDown,
             GestureType.SWIPE_DOWN to gestureSwipeDown,
-            GestureType.SWIPE_UP to gestureSwipeUp
+            GestureType.SWIPE_UP to gestureSwipeUp,
+            GestureType.TWO_FINGER_SWIPE_DOWN to gestureTwoFingerSwipeDown,
+            GestureType.TWO_FINGER_SWIPE_UP to gestureTwoFingerSwipeUp,
+            GestureType.PINCH_IN to gesturePinchIn,
+            GestureType.PINCH_OUT to gesturePinchOut,
+            GestureType.TWO_FINGER_TAP to gestureTwoFingerTap
         )
 
     fun getGesture(type: GestureType): GestureConfig = when (type) {
@@ -82,5 +92,10 @@ data class LauncherSettings(
         GestureType.DOUBLE_TAP_SWIPE_DOWN -> gestureDoubleTapSwipeDown
         GestureType.SWIPE_DOWN -> gestureSwipeDown
         GestureType.SWIPE_UP -> gestureSwipeUp
+        GestureType.TWO_FINGER_SWIPE_DOWN -> gestureTwoFingerSwipeDown
+        GestureType.TWO_FINGER_SWIPE_UP -> gestureTwoFingerSwipeUp
+        GestureType.PINCH_IN -> gesturePinchIn
+        GestureType.PINCH_OUT -> gesturePinchOut
+        GestureType.TWO_FINGER_TAP -> gestureTwoFingerTap
     }
 }
