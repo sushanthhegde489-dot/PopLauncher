@@ -3,8 +3,6 @@ package com.sushanth.poplauncher.data.model
 enum class GestureType(val label: String, val description: String) {
     DOUBLE_TAP("Double Tap", "Double tap on empty space"),
     TRIPLE_TAP("Triple Tap", "Triple tap on empty space"),
-    DOUBLE_TAP_SWIPE_UP("Double Tap & Swipe Up", "Double tap then swipe upward"),
-    DOUBLE_TAP_SWIPE_DOWN("Double Tap & Swipe Down", "Double tap then swipe downward"),
     SWIPE_DOWN("Swipe Down", "Swipe downward on empty space"),
     SWIPE_UP("Swipe Up", "Swipe upward on empty space");
 

@@ -5,7 +5,6 @@ import android.content.Intent
 import android.net.Uri
 import android.util.Log
 import androidx.core.net.toUri
-import com.sushanth.poplauncher.data.indexing.CallLogSearchProvider
 import com.sushanth.poplauncher.data.indexing.ContactSearchProvider
 import com.sushanth.poplauncher.data.indexing.ConversationSearchProvider
 import com.sushanth.poplauncher.data.indexing.DeepAppSearchProvider
@@ -70,8 +69,7 @@ class SearchRepository(
         ConversationSearchProvider(settingsRepository),
         ContactSearchProvider(settingsRepository),
         FileSearchProvider(settingsRepository),
-        MediaSearchProvider(settingsRepository),
-        CallLogSearchProvider()
+        MediaSearchProvider(settingsRepository)
     )
 
     private val _searchState = MutableStateFlow(SearchResultState())

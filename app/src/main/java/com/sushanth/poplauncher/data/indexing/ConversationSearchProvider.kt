@@ -6,7 +6,6 @@ import android.content.pm.LauncherApps
 import android.net.Uri
 import android.os.Build
 import android.os.Process
-import android.provider.CallLog
 import android.provider.ContactsContract
 import android.provider.Telephony
 import com.sushanth.poplauncher.data.model.ConversationEntity
@@ -205,53 +204,7 @@ class ConversationSearchProvider(
         }
 
 
-        // 4. Query Call Log (if Call Log provider is enabled and READ_CALL_LOG permission is granted)
-        val isCallLogEnabled = settingsRepository?.settings?.value?.enabledProviders?.contains(SearchType.CALL_LOG) ?: true
-        if (isCallLogEnabled && androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_CALL_LOG) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            try {
-                val dialerPackage = (context.getSystemService(Context.TELECOM_SERVICE) as? android.telecom.TelecomManager)?.defaultDialerPackage
-                val cursor = context.contentResolver.query(
-                    CallLog.Calls.CONTENT_URI,
-                    arrayOf(CallLog.Calls.NUMBER, CallLog.Calls.CACHED_NAME, CallLog.Calls.DATE),
-                    "${CallLog.Calls.CACHED_NAME} LIKE ? OR ${CallLog.Calls.NUMBER} LIKE ?",
-                    arrayOf("%$trimmed%", "%$trimmed%"),
-                    "${CallLog.Calls.DATE} DESC LIMIT 5"
-                )
-                cursor?.use { c ->
-                    val numCol = c.getColumnIndex(CallLog.Calls.NUMBER)
-                    val nameCol = c.getColumnIndex(CallLog.Calls.CACHED_NAME)
-                    val dateCol = c.getColumnIndex(CallLog.Calls.DATE)
 
-                    while (c.moveToNext()) {
-                        val number = if (numCol >= 0) c.getString(numCol) ?: "" else ""
-                        val name = if (nameCol >= 0) c.getString(nameCol) ?: "" else ""
-                        val date = if (dateCol >= 0) c.getLong(dateCol) else 0L
-
-                        val display = name.ifBlank { number }
-                        if (display.isNotBlank()) {
-                            val dialIntent = Intent(Intent.ACTION_DIAL).apply {
-                                if (number.isNotBlank()) {
-                                    data = Uri.parse("tel:${Uri.encode(number)}")
-                                }
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            }
-                            results.add(
-                                ConversationEntity(
-                                    id = "call_entry:${number}_$date",
-                                    title = display,
-                                    subtitle = if (name.isNotBlank()) "Call: $number" else "Phone call",
-                                    source = "Phone",
-                                    appPackage = dialerPackage,
-                                    timestamp = date,
-                                    launchIntent = dialIntent,
-                                    searchableTerms = listOf(display, number)
-                                )
-                            )
-                        }
-                    }
-                }
-            } catch (_: Exception) {}
-        }
 
         results
             .filter { it.appPackage == null || !frictionPackages.contains(it.appPackage) }

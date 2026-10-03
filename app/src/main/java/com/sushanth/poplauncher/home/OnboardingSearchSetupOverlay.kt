@@ -160,19 +160,7 @@ fun OnboardingSearchSetupOverlay(
                     onCheckedChange = { toggleProvider(SearchType.PERSON, it) }
                 )
 
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-
-                // 3. Call History
-                OnboardingProviderRow(
-                    title = "Call History",
-                    permissionExplanation = "Requires READ_CALL_LOG permission to search recent phone calls.",
-                    checked = selectedProviders.contains(SearchType.CALL_LOG),
-                    onCheckedChange = { toggleProvider(SearchType.CALL_LOG, it) }
-                )
-
-
-
-                // 5. Conversation Shortcuts
+                // 3. Conversation Shortcuts
                 OnboardingProviderRow(
                     title = "Conversation Shortcuts",
                     permissionExplanation = "Searches launcher shortcuts (WhatsApp, Telegram, etc.). No special permission required.",
@@ -182,10 +170,10 @@ fun OnboardingSearchSetupOverlay(
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
-                // 6. Files & Documents
+                // 4. Files & Documents
                 OnboardingProviderRow(
                     title = "Files & Documents",
-                    permissionExplanation = "Requires Storage / All Files permission to locate documents locally.",
+                    permissionExplanation = "Searches documents and media files locally.",
                     checked = selectedProviders.contains(SearchType.FILE),
                     onCheckedChange = { toggleProvider(SearchType.FILE, it) }
                 )

@@ -29,11 +29,15 @@ class FileSearchProvider(
     override val displayName: String = "Files & Documents"
 
     override suspend fun isAvailable(context: Context): Boolean {
-        // Media permissions do NOT grant broad access to MediaStore.Files on Android 13+.
-        // Treat file/document search as a true filesystem feature and require All Files
-        // access on Android 11+ so document searches do not silently return media-only data.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            return Environment.isExternalStorageManager()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
+            return true
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val hasImg = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
+            val hasVid = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED
+            val hasVisual = Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) == PackageManager.PERMISSION_GRANTED
+            return hasImg || hasVid || hasVisual
         }
         return ContextCompat.checkSelfPermission(
             context,

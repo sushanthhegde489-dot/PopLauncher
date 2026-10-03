@@ -77,7 +77,7 @@ class AppRepository(private val context: Context) {
         if (launcherApps != null) {
             for (profile in profiles) {
                 // Do not expose Private Space apps in general launcher list
-                if (com.sushanth.poplauncher.util.PrivateSpaceHelper.isPrivateProfile(userManager, profile)) {
+                if (com.sushanth.poplauncher.util.PrivateSpaceHelper.isPrivateProfile(userManager, profile, context)) {
                     continue
                 }
                 val isCloneProfile = profile != myUserHandle

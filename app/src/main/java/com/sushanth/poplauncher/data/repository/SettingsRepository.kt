@@ -60,12 +60,6 @@ class SettingsRepository(context: Context) {
         val gestureTripleTap = com.sushanth.poplauncher.data.model.GestureConfig.fromSerialized(
             prefs.getString(KEY_GESTURE_TRIPLE_TAP, null)
         )
-        val gestureDoubleTapSwipeUp = com.sushanth.poplauncher.data.model.GestureConfig.fromSerialized(
-            prefs.getString(KEY_GESTURE_DOUBLE_TAP_SWIPE_UP, null)
-        )
-        val gestureDoubleTapSwipeDown = com.sushanth.poplauncher.data.model.GestureConfig.fromSerialized(
-            prefs.getString(KEY_GESTURE_DOUBLE_TAP_SWIPE_DOWN, null)
-        )
         val gestureSwipeDown = prefs.getString(KEY_GESTURE_SWIPE_DOWN, null)?.let {
             com.sushanth.poplauncher.data.model.GestureConfig.fromSerialized(it)
         } ?: com.sushanth.poplauncher.data.model.GestureConfig(
@@ -98,8 +92,6 @@ class SettingsRepository(context: Context) {
             searchAnimationEnabled = searchAnimationEnabled,
             gestureDoubleTap = gestureDoubleTap,
             gestureTripleTap = gestureTripleTap,
-            gestureDoubleTapSwipeUp = gestureDoubleTapSwipeUp,
-            gestureDoubleTapSwipeDown = gestureDoubleTapSwipeDown,
             gestureSwipeDown = gestureSwipeDown,
             gestureSwipeUp = gestureSwipeUp
         )
@@ -264,8 +256,6 @@ class SettingsRepository(context: Context) {
         val key = when (gestureType) {
             com.sushanth.poplauncher.data.model.GestureType.DOUBLE_TAP -> KEY_GESTURE_DOUBLE_TAP
             com.sushanth.poplauncher.data.model.GestureType.TRIPLE_TAP -> KEY_GESTURE_TRIPLE_TAP
-            com.sushanth.poplauncher.data.model.GestureType.DOUBLE_TAP_SWIPE_UP -> KEY_GESTURE_DOUBLE_TAP_SWIPE_UP
-            com.sushanth.poplauncher.data.model.GestureType.DOUBLE_TAP_SWIPE_DOWN -> KEY_GESTURE_DOUBLE_TAP_SWIPE_DOWN
             com.sushanth.poplauncher.data.model.GestureType.SWIPE_DOWN -> KEY_GESTURE_SWIPE_DOWN
             com.sushanth.poplauncher.data.model.GestureType.SWIPE_UP -> KEY_GESTURE_SWIPE_UP
         }
@@ -273,8 +263,6 @@ class SettingsRepository(context: Context) {
         _settings.value = when (gestureType) {
             com.sushanth.poplauncher.data.model.GestureType.DOUBLE_TAP -> _settings.value.copy(gestureDoubleTap = config)
             com.sushanth.poplauncher.data.model.GestureType.TRIPLE_TAP -> _settings.value.copy(gestureTripleTap = config)
-            com.sushanth.poplauncher.data.model.GestureType.DOUBLE_TAP_SWIPE_UP -> _settings.value.copy(gestureDoubleTapSwipeUp = config)
-            com.sushanth.poplauncher.data.model.GestureType.DOUBLE_TAP_SWIPE_DOWN -> _settings.value.copy(gestureDoubleTapSwipeDown = config)
             com.sushanth.poplauncher.data.model.GestureType.SWIPE_DOWN -> _settings.value.copy(gestureSwipeDown = config)
             com.sushanth.poplauncher.data.model.GestureType.SWIPE_UP -> _settings.value.copy(gestureSwipeUp = config)
         }
@@ -346,8 +334,6 @@ class SettingsRepository(context: Context) {
         private const val KEY_SEARCH_ANIMATION = "search_animation"
         private const val KEY_GESTURE_DOUBLE_TAP = "gesture_double_tap"
         private const val KEY_GESTURE_TRIPLE_TAP = "gesture_triple_tap"
-        private const val KEY_GESTURE_DOUBLE_TAP_SWIPE_UP = "gesture_double_tap_swipe_up"
-        private const val KEY_GESTURE_DOUBLE_TAP_SWIPE_DOWN = "gesture_double_tap_swipe_down"
         private const val KEY_GESTURE_SWIPE_DOWN = "gesture_swipe_down"
         private const val KEY_GESTURE_SWIPE_UP = "gesture_swipe_up"
 

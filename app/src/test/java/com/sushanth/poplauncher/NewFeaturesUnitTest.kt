@@ -51,10 +51,9 @@ class NewFeaturesUnitTest {
 
     @Test
     fun testGestureTypeDisplayNames() {
+        assertEquals(4, GestureType.values().size)
         assertEquals("Double Tap", GestureType.DOUBLE_TAP.displayName)
         assertEquals("Triple Tap", GestureType.TRIPLE_TAP.displayName)
-        assertEquals("Double Tap & Swipe Up", GestureType.DOUBLE_TAP_SWIPE_UP.displayName)
-        assertEquals("Double Tap & Swipe Down", GestureType.DOUBLE_TAP_SWIPE_DOWN.displayName)
         assertEquals("Swipe Down", GestureType.SWIPE_DOWN.displayName)
         assertEquals("Swipe Up", GestureType.SWIPE_UP.displayName)
     }

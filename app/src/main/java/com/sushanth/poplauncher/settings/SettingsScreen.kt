@@ -713,31 +713,6 @@ fun SettingsScreen(
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-                val callLogEnabled = settings.enabledProviders.contains(SearchType.CALL_LOG)
-                val callLogHasPermission = mainActivity?.hasPermissionForProvider(SearchType.CALL_LOG) ?: true
-                val callLogSubtitle = when {
-                    callLogEnabled && callLogHasPermission -> "Search recent phone call history."
-                    callLogEnabled && !callLogHasPermission -> "Call log permission required — tap to grant"
-                    else -> "Search phone call history."
-                }
-
-                SwitchPreferenceItem(
-                    title = "Call history",
-                    subtitle = callLogSubtitle,
-                    checked = callLogEnabled,
-                    onCheckedChange = { enabled ->
-                        settingsRepository.toggleProvider(
-                            SearchType.CALL_LOG,
-                            enabled
-                        )
-                        if (enabled && !callLogHasPermission) {
-                            mainActivity?.requestPermissionForProvider(SearchType.CALL_LOG)
-                        }
-                    }
-                )
-
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
                 val convEnabled = settings.enabledProviders.contains(SearchType.CONVERSATION)
 
                 SwitchPreferenceItem(
@@ -765,10 +740,10 @@ fun SettingsScreen(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
                 val fileEnabled = settings.enabledProviders.contains(SearchType.FILE)
-                val fileAccess = mainActivity?.getFileAccessState() ?: com.sushanth.poplauncher.FileAccessState.ALL_FILES
+                val fileAccess = mainActivity?.getFileAccessState() ?: com.sushanth.poplauncher.FileAccessState.MEDIASTORE_ONLY
                 val fileSubtitle = when (fileAccess) {
-                    com.sushanth.poplauncher.FileAccessState.ALL_FILES -> "Full filesystem search enabled."
-                    com.sushanth.poplauncher.FileAccessState.MEDIASTORE_ONLY -> "All Files access is required for document search — tap to grant."
+                    com.sushanth.poplauncher.FileAccessState.ALL_FILES,
+                    com.sushanth.poplauncher.FileAccessState.MEDIASTORE_ONLY -> "Search local files and documents."
                     com.sushanth.poplauncher.FileAccessState.DENIED -> "Storage permission required — tap to grant."
                 }
 
@@ -781,7 +756,7 @@ fun SettingsScreen(
                             SearchType.FILE,
                             enabled
                         )
-                        if (enabled && fileAccess != com.sushanth.poplauncher.FileAccessState.ALL_FILES) {
+                        if (enabled && fileAccess == com.sushanth.poplauncher.FileAccessState.DENIED) {
                             mainActivity?.requestPermissionForProvider(SearchType.FILE)
                         }
                     }

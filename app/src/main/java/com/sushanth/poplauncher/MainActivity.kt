@@ -148,22 +148,11 @@ class MainActivity : ComponentActivity() {
         pendingWidgetInfo = null
     }
 
-    // Permission launcher for local search (Contacts, Call Log, SMS, Files, Photos/Media, Notifications)
-    private var pendingAllFilesAccessAfterRuntimePermissions = false
-
+    // Permission launcher for local search (Contacts, Files, Photos/Media, Notifications)
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) {
         searchRepository.triggerReindex()
-        if (pendingAllFilesAccessAfterRuntimePermissions &&
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
-            !Environment.isExternalStorageManager()
-        ) {
-            pendingAllFilesAccessAfterRuntimePermissions = false
-            launchAllFilesSettings()
-        } else {
-            pendingAllFilesAccessAfterRuntimePermissions = false
-        }
     }
 
     fun getFileAccessState(): FileAccessState {
@@ -213,9 +202,6 @@ class MainActivity : ComponentActivity() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
             neededPermissions.add(Manifest.permission.READ_CONTACTS)
         }
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CALL_LOG) != PackageManager.PERMISSION_GRANTED) {
-            neededPermissions.add(Manifest.permission.READ_CALL_LOG)
-        }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) != PackageManager.PERMISSION_GRANTED) {
@@ -248,39 +234,12 @@ class MainActivity : ComponentActivity() {
     fun hasAllRuntimePermissions(): Boolean = getMissingRuntimePermissions().isEmpty()
 
     /**
-     * Launch system settings for All Files Access on Android 11+.
-     */
-    fun launchAllFilesSettings() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            try {
-                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
-                    data = "package:$packageName".toUri()
-                }
-                startActivity(intent)
-            } catch (e: Exception) {
-                Log.w("PopLauncher", "Could not open app all files access permission settings, falling back to general settings", e)
-                try {
-                    val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-                    startActivity(intent)
-                } catch (e2: Exception) {
-                    Log.e("PopLauncher", "Failed to launch all files settings", e2)
-                    Toast.makeText(this, "Unable to open storage settings: ${e2.localizedMessage}", Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-    }
-
-    /**
-     * Request permissions for Contacts, Call Log, SMS, Photos/Media, Storage, and Notifications.
-     * Prevents launching runtime dialog and system settings simultaneously.
+     * Request permissions for Contacts, Photos/Media, Storage, and Notifications.
      */
     fun requestSearchPermissions() {
         val neededPermissions = getMissingRuntimePermissions()
-
         if (neededPermissions.isNotEmpty()) {
             permissionLauncher.launch(neededPermissions.toTypedArray())
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
-            launchAllFilesSettings()
         }
     }
 
@@ -296,22 +255,15 @@ class MainActivity : ComponentActivity() {
      */
     fun requestPermissionsForProviders(providers: Set<SearchType>) {
         val neededPermissions = mutableListOf<String>()
-        var needsStorageSettings = false
 
         for (provider in providers) {
             val missing = getMissingPermissionsForProvider(provider)
             neededPermissions.addAll(missing)
-            if (provider == SearchType.FILE && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
-                needsStorageSettings = true
-            }
         }
 
         val distinctNeeded = neededPermissions.distinct()
         if (distinctNeeded.isNotEmpty()) {
-            pendingAllFilesAccessAfterRuntimePermissions = needsStorageSettings
             permissionLauncher.launch(distinctNeeded.toTypedArray())
-        } else if (needsStorageSettings) {
-            launchAllFilesSettings()
         }
     }
 
@@ -326,24 +278,15 @@ class MainActivity : ComponentActivity() {
                     missing.add(Manifest.permission.READ_CONTACTS)
                 }
             }
-            SearchType.CALL_LOG -> {
-                if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CALL_LOG) != PackageManager.PERMISSION_GRANTED) {
-                    missing.add(Manifest.permission.READ_CALL_LOG)
-                }
-            }
             SearchType.FILE -> {
-                // Files/Documents require broad storage access on Android 11+.
-                // READ_MEDIA_* only covers photos/videos and cannot make MediaStore.Files
-                // a general document index.
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    // No runtime permission can grant this; requestPermissionForProvider()
-                    // / requestPermissionsForProviders() will open the All Files settings page.
-                } else if (ContextCompat.checkSelfPermission(
-                        this,
-                        Manifest.permission.READ_EXTERNAL_STORAGE
-                    ) != PackageManager.PERMISSION_GRANTED
-                ) {
-                    missing.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                    if (ContextCompat.checkSelfPermission(
+                            this,
+                            Manifest.permission.READ_EXTERNAL_STORAGE
+                        ) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        missing.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+                    }
                 }
             }
             SearchType.MEDIA -> {
@@ -366,11 +309,7 @@ class MainActivity : ComponentActivity() {
      */
     fun hasPermissionForProvider(provider: SearchType): Boolean {
         return when (provider) {
-            SearchType.FILE -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                Environment.isExternalStorageManager()
-            } else {
-                getFileAccessState() != FileAccessState.DENIED
-            }
+            SearchType.FILE -> getFileAccessState() != FileAccessState.DENIED
             SearchType.MEDIA -> getMediaAccessState() != MediaAccessState.DENIED
             else -> getMissingPermissionsForProvider(provider).isEmpty()
         }
@@ -383,8 +322,6 @@ class MainActivity : ComponentActivity() {
         val missing = getMissingPermissionsForProvider(provider)
         if (missing.isNotEmpty()) {
             permissionLauncher.launch(missing.toTypedArray())
-        } else if (provider == SearchType.FILE && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
-            launchAllFilesSettings()
         }
     }
 

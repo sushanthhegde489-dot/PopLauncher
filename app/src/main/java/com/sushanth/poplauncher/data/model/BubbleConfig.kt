@@ -60,8 +60,6 @@ data class LauncherSettings(
     val searchAnimationEnabled: Boolean = true,
     val gestureDoubleTap: GestureConfig = GestureConfig(actionType = GestureActionType.NONE),
     val gestureTripleTap: GestureConfig = GestureConfig(actionType = GestureActionType.NONE),
-    val gestureDoubleTapSwipeUp: GestureConfig = GestureConfig(actionType = GestureActionType.NONE),
-    val gestureDoubleTapSwipeDown: GestureConfig = GestureConfig(actionType = GestureActionType.NONE),
     val gestureSwipeDown: GestureConfig = GestureConfig(actionType = GestureActionType.OPEN_SEARCH),
     val gestureSwipeUp: GestureConfig = GestureConfig(actionType = GestureActionType.NONE)
 ) {
@@ -69,8 +67,6 @@ data class LauncherSettings(
         get() = mapOf(
             GestureType.DOUBLE_TAP to gestureDoubleTap,
             GestureType.TRIPLE_TAP to gestureTripleTap,
-            GestureType.DOUBLE_TAP_SWIPE_UP to gestureDoubleTapSwipeUp,
-            GestureType.DOUBLE_TAP_SWIPE_DOWN to gestureDoubleTapSwipeDown,
             GestureType.SWIPE_DOWN to gestureSwipeDown,
             GestureType.SWIPE_UP to gestureSwipeUp
         )
@@ -78,8 +74,6 @@ data class LauncherSettings(
     fun getGesture(type: GestureType): GestureConfig = when (type) {
         GestureType.DOUBLE_TAP -> gestureDoubleTap
         GestureType.TRIPLE_TAP -> gestureTripleTap
-        GestureType.DOUBLE_TAP_SWIPE_UP -> gestureDoubleTapSwipeUp
-        GestureType.DOUBLE_TAP_SWIPE_DOWN -> gestureDoubleTapSwipeDown
         GestureType.SWIPE_DOWN -> gestureSwipeDown
         GestureType.SWIPE_UP -> gestureSwipeUp
     }

@@ -21,14 +21,13 @@
     <!-- Telephony hardware is optional so the launcher runs on non-phone devices -->
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
 
-    <!-- On-device contact and call history search -->
+    <!-- On-device contact search -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
-    <uses-permission android:name="android.permission.READ_CALL_LOG" />
 
     <!-- Notifications for launcher alerts and status -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- On-device local files, photos and media search -->
+    <!-- On-device local photos and media search -->
     <!-- Scoped storage: Use READ_EXTERNAL_STORAGE only on Android 12 and below -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
 
@@ -36,10 +35,6 @@
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
-
-    <!-- Required for file/document search on Android 11+ (scoped storage workaround) -->
-    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
-        tools:ignore="ScopedStorage" />
 
     <application
         android:allowBackup="true"

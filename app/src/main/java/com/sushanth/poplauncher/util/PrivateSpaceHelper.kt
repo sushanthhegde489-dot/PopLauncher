@@ -24,21 +24,39 @@ object PrivateSpaceHelper {
         val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as? LauncherApps
         val userManager = context.getSystemService(Context.USER_SERVICE) as? UserManager
 
-        // 1. Android 15 (API 35+) Private Profile
-        if (Build.VERSION.SDK_INT >= 35 && userManager != null && launcherApps != null) {
+        // 1. Android 15 Private Profile Discovery
+        if (userManager != null && launcherApps != null) {
             try {
-                val profiles = launcherApps.profiles
-                val privateProfile = findPrivateProfile(userManager, profiles)
+                val allProfiles = mutableListOf<UserHandle>()
+                try {
+                    allProfiles.addAll(launcherApps.profiles)
+                } catch (_: Throwable) {}
+                try {
+                    userManager.userProfiles?.let { allProfiles.addAll(it) }
+                } catch (_: Throwable) {}
+
+                val distinctProfiles = allProfiles.distinct()
+                val privateProfile = findPrivateProfile(context, userManager, launcherApps, distinctProfiles)
+
                 if (privateProfile != null) {
-                    if (userManager.isQuietModeEnabled(privateProfile)) {
+                    val isQuiet = try {
+                        userManager.isQuietModeEnabled(privateProfile)
+                    } catch (_: Throwable) {
+                        false
+                    }
+
+                    if (isQuiet) {
                         // Request Android system unlock prompt (fingerprint / PIN / pattern)
                         val prompted = requestQuietModeUnlock(userManager, privateProfile)
-                        if (prompted) return true
+                        if (prompted) {
+                            android.widget.Toast.makeText(context, "Unlocking Private Space...", android.widget.Toast.LENGTH_SHORT).show()
+                            return true
+                        }
                     } else {
                         // Already unlocked! Launch private profile's primary activity
                         val privateApps = try {
                             launcherApps.getActivityList(null, privateProfile)
-                        } catch (_: Exception) {
+                        } catch (_: Throwable) {
                             emptyList()
                         }
                         if (privateApps.isNotEmpty()) {
@@ -59,7 +77,26 @@ object PrivateSpaceHelper {
             }
         }
 
-        // 2. OEM Hidden Apps, Secure Folder, and Private Safe Intents
+        // 2. Android 15 System Private Space Gatekeeper / Authentication Activity
+        val systemPrivateIntents = listOfNotNull(
+            Intent().apply {
+                setClassName("com.android.settings", "com.android.settings.privatespace.PrivateSpaceAuthenticationActivity")
+            },
+            Intent("com.android.settings.action.OPEN_PRIVATE_SPACE_SETTINGS")
+        )
+        for (intent in systemPrivateIntents) {
+            if (canResolve(context, intent)) {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                try {
+                    context.startActivity(intent)
+                    return true
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed launching system private intent: ${intent.component}", e)
+                }
+            }
+        }
+
+        // 3. OEM Hidden Apps, Secure Folder, and Private Safe Intents
         val oemIntents = listOfNotNull(
             // Samsung Secure Folder
             Intent("com.samsung.knox.securefolder.action.LAUNCH_SECURE_FOLDER"),
@@ -129,9 +166,59 @@ object PrivateSpaceHelper {
         }
     }
 
-    fun isPrivateProfile(userManager: UserManager?, profile: UserHandle): Boolean {
+    fun isPrivateProfile(context: Context, profile: UserHandle): Boolean {
+        val userManager = context.getSystemService(Context.USER_SERVICE) as? UserManager
+        return isPrivateProfile(userManager, profile, context)
+    }
+
+    fun isPrivateProfile(userManager: UserManager?, profile: UserHandle, context: Context? = null): Boolean {
         if (userManager == null) return false
-        return try {
+        if (profile == android.os.Process.myUserHandle()) return false
+
+        val profileStr = profile.toString().lowercase()
+        if (profileStr.contains("clone") || profileStr.contains("dual") || profileStr.contains("work") || profileStr.contains("managed")) {
+            return false
+        }
+
+        // 1. Check LauncherApps.getLauncherUserInfo(profile)
+        if (context != null) {
+            val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as? LauncherApps
+            if (launcherApps != null) {
+                try {
+                    val getInfoMethod = launcherApps.javaClass.getMethod("getLauncherUserInfo", UserHandle::class.java)
+                    val info = getInfoMethod.invoke(launcherApps, profile)
+                    if (info != null) {
+                        val getTypeMethod = info.javaClass.getMethod("getUserType")
+                        val type = getTypeMethod.invoke(info) as? String
+                        if (type != null) {
+                            if (type == "android.os.usertype.profile.PRIVATE" || type.contains("private", ignoreCase = true)) {
+                                return true
+                            }
+                            if (type.contains("clone", ignoreCase = true) || type.contains("managed", ignoreCase = true) || type.contains("work", ignoreCase = true)) {
+                                return false
+                            }
+                        }
+                    }
+                } catch (_: Throwable) {}
+            }
+        }
+
+        // 2. Check UserManager getProfileType(profile)
+        try {
+            val getProfileTypeMethod = userManager.javaClass.getMethod("getProfileType", UserHandle::class.java)
+            val type = getProfileTypeMethod.invoke(userManager, profile) as? String
+            if (type != null) {
+                if (type == "android.os.usertype.profile.PRIVATE" || type.contains("private", ignoreCase = true)) {
+                    return true
+                }
+                if (type.contains("clone", ignoreCase = true) || type.contains("managed", ignoreCase = true) || type.contains("work", ignoreCase = true)) {
+                    return false
+                }
+            }
+        } catch (_: Throwable) {}
+
+        // 3. Check getUserProperties (if present on OEM/framework)
+        try {
             val getUserPropertiesMethod = userManager.javaClass.getMethod("getUserProperties", UserHandle::class.java)
             val userProperties = getUserPropertiesMethod.invoke(userManager, profile)
             if (userProperties != null) {
@@ -142,18 +229,63 @@ object PrivateSpaceHelper {
                     val isPrivate = isPrivateMethod.invoke(userProperties) as? Boolean
                     if (isPrivate == true) return true
                 }
-                userProperties.toString().contains("isPrivateProfile=true", ignoreCase = true)
-            } else {
+                if (userProperties.toString().contains("isPrivateProfile=true", ignoreCase = true)) {
+                    return true
+                }
+            }
+        } catch (_: Throwable) {}
+
+        // 4. Check getUserInfo(id)
+        try {
+            val idMethod = profile.javaClass.getMethod("getIdentifier")
+            val id = idMethod.invoke(profile) as? Int ?: profile.hashCode()
+            val getUserInfoMethod = userManager.javaClass.getMethod("getUserInfo", Int::class.javaPrimitiveType)
+            val userInfo = getUserInfoMethod.invoke(userManager, id)
+            if (userInfo != null) {
+                val userTypeField = runCatching { userInfo.javaClass.getField("userType").get(userInfo) as? String }.getOrNull()
+                if (userTypeField != null) {
+                    if (userTypeField == "android.os.usertype.profile.PRIVATE" || userTypeField.contains("private", ignoreCase = true)) {
+                        return true
+                    }
+                    if (userTypeField.contains("clone", ignoreCase = true) || userTypeField.contains("managed", ignoreCase = true) || userTypeField.contains("work", ignoreCase = true)) {
+                        return false
+                    }
+                }
+                val isPrivateField = runCatching { userInfo.javaClass.getField("isPrivateProfile").getBoolean(userInfo) }.getOrNull()
+                if (isPrivateField == true) return true
+            }
+        } catch (_: Throwable) {}
+
+        // 5. Check if profile string representation explicitly contains "private"
+        if (profileStr.contains("private")) {
+            return true
+        }
+
+        // 6. Check quiet mode + not managed (work) profile
+        try {
+            val isQuiet = userManager.isQuietModeEnabled(profile)
+            val isManaged = try {
+                val method = userManager.javaClass.getMethod("isManagedProfile", Int::class.javaPrimitiveType)
+                method.invoke(userManager, profile.hashCode()) as? Boolean ?: false
+            } catch (_: Throwable) {
                 false
             }
-        } catch (_: Throwable) {
-            false
-        }
+            if (isQuiet && !isManaged) {
+                return true
+            }
+        } catch (_: Throwable) {}
+
+        return false
     }
 
-    private fun findPrivateProfile(userManager: UserManager, profiles: List<UserHandle>): UserHandle? {
+    private fun findPrivateProfile(
+        context: Context,
+        userManager: UserManager,
+        launcherApps: LauncherApps,
+        profiles: List<UserHandle>
+    ): UserHandle? {
         for (profile in profiles) {
-            if (isPrivateProfile(userManager, profile)) return profile
+            if (isPrivateProfile(userManager, profile, context)) return profile
         }
         return null
     }

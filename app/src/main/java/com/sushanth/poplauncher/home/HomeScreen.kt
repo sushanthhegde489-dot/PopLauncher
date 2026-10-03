@@ -397,22 +397,12 @@ fun HomeScreen(
                                             swipeTriggered = true
                                             dragConsumed = true
                                             current.consume()
-                                            if (tapCount >= 2) {
-                                                tapCount = 0
-                                                lastTapTime = 0L
-                                                if (dy < 0) {
-                                                    executeGestureAction(settings.gestureDoubleTapSwipeUp)
-                                                } else {
-                                                    executeGestureAction(settings.gestureDoubleTapSwipeDown)
-                                                }
+                                            tapCount = 0
+                                            lastTapTime = 0L
+                                            if (dy > 0) {
+                                                executeGestureAction(settings.gestureSwipeDown)
                                             } else {
-                                                tapCount = 0
-                                                lastTapTime = 0L
-                                                if (dy > 0) {
-                                                    executeGestureAction(settings.gestureSwipeDown)
-                                                } else {
-                                                    executeGestureAction(settings.gestureSwipeUp)
-                                                }
+                                                executeGestureAction(settings.gestureSwipeUp)
                                             }
                                         } else if (dragConsumed) {
                                             current.consume()
