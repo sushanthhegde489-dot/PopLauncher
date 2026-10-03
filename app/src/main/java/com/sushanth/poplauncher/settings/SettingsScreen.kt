@@ -1886,8 +1886,7 @@ private fun GestureActionPickerDialog(
                 @Suppress("DEPRECATION")
                 val availableActions = GestureActionType.entries.filter {
                     it != GestureActionType.OPEN_NOTIFICATIONS &&
-                    it != GestureActionType.OPEN_SETTINGS &&
-                    it != GestureActionType.OPEN_PRIVATE_SPACE
+                    it != GestureActionType.OPEN_SETTINGS
                 }
                 availableActions.forEach { action ->
                     @Suppress("DEPRECATION")
@@ -1903,7 +1902,7 @@ private fun GestureActionPickerDialog(
                         GestureActionType.OPEN_NOTIFICATION_SHADE -> "Notification shade"
                         @Suppress("DEPRECATION")
                         GestureActionType.OPEN_NOTIFICATIONS -> "Notification shade"
-                        GestureActionType.OPEN_PRIVATE_SPACE -> "System Private Space"
+                        GestureActionType.OPEN_PRIVATE_SPACE -> "Private Space"
                         GestureActionType.OPEN_HIDDEN_APPS -> "Launcher Hidden Apps"
                         GestureActionType.LOCK_SCREEN -> "Lock screen"
                     }

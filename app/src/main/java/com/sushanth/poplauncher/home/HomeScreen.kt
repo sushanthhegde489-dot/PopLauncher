@@ -24,7 +24,6 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
@@ -111,13 +110,14 @@ fun HomeScreen(
     var isContextMenuOpen by remember { mutableStateOf(false) }
     var isHiddenAppsBubblesOpen by remember { mutableStateOf(false) }
     var activeGroupBubbles by remember { mutableStateOf<com.sushanth.poplauncher.data.model.AppGroup?>(null) }
+    var privateSpaceBubblesList by remember { mutableStateOf<List<com.sushanth.poplauncher.data.model.AppEntity>?>(null) }
 
     val pagerState = rememberPagerState(pageCount = { 2 })
     val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
     val density = LocalDensity.current
 
-    BackHandler(enabled = isSearchOpen || isContextMenuOpen || searchState.activeBubbleApp != null || isHiddenAppsBubblesOpen || activeGroupBubbles != null) {
+    BackHandler(enabled = isSearchOpen || isContextMenuOpen || searchState.activeBubbleApp != null || isHiddenAppsBubblesOpen || activeGroupBubbles != null || privateSpaceBubblesList != null) {
         if (searchState.activeBubbleApp != null) {
             searchQuery = ""
             searchRepository.clearSearch()
@@ -125,6 +125,8 @@ fun HomeScreen(
             activeGroupBubbles = null
         } else if (isHiddenAppsBubblesOpen) {
             isHiddenAppsBubblesOpen = false
+        } else if (privateSpaceBubblesList != null) {
+            privateSpaceBubblesList = null
         } else if (isContextMenuOpen) {
             isContextMenuOpen = false
         } else if (isSearchOpen) {
@@ -219,9 +221,43 @@ fun HomeScreen(
                 expandNotificationShade(context)
             }
             GestureActionType.OPEN_PRIVATE_SPACE -> {
-                val opened = com.sushanth.poplauncher.util.PrivateSpaceHelper.openPrivateSpace(context)
-                if (!opened) {
-                    Toast.makeText(context, "Private Space is not available on this device", Toast.LENGTH_SHORT).show()
+                when (val result = com.sushanth.poplauncher.util.PrivateSpaceHelper.resolvePrivateSpace(context)) {
+                    is com.sushanth.poplauncher.util.PrivateSpaceResult.PromptedUnlock -> {
+                        // Android system unlock prompt (fingerprint/PIN) has been shown
+                    }
+                    is com.sushanth.poplauncher.util.PrivateSpaceResult.LaunchedOem -> {
+                        // OEM Private Safe or Knox Secure Folder opened
+                    }
+                    is com.sushanth.poplauncher.util.PrivateSpaceResult.Apps -> {
+                        val mappedEntities = result.activities.map { act ->
+                            val intent = Intent(Intent.ACTION_MAIN).apply {
+                                component = act.componentName
+                                addCategory(Intent.CATEGORY_LAUNCHER)
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            com.sushanth.poplauncher.data.model.AppEntity(
+                                id = "private_space_${act.componentName.flattenToString()}",
+                                title = act.label.toString(),
+                                subtitle = "Private Space",
+                                packageName = act.applicationInfo.packageName,
+                                componentName = act.componentName,
+                                userHandle = result.profile,
+                                isClone = false,
+                                launchIntent = intent
+                            )
+                        }
+                        if (mappedEntities.isNotEmpty()) {
+                            privateSpaceBubblesList = mappedEntities
+                        } else {
+                            Toast.makeText(context, "Private Space is empty", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    is com.sushanth.poplauncher.util.PrivateSpaceResult.EmptyUnlocked -> {
+                        Toast.makeText(context, "Private Space is unlocked (no apps installed)", Toast.LENGTH_SHORT).show()
+                    }
+                    is com.sushanth.poplauncher.util.PrivateSpaceResult.Unavailable -> {
+                        Toast.makeText(context, "Private Space is not set up on this device", Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
             GestureActionType.OPEN_HIDDEN_APPS -> {
@@ -234,8 +270,25 @@ fun HomeScreen(
             GestureActionType.LOCK_SCREEN -> {
                 try {
                     val dpm = context.getSystemService(android.app.admin.DevicePolicyManager::class.java)
-                    dpm?.lockNow()
-                } catch (_: Exception) {}
+                    val adminComponent = android.content.ComponentName(context, com.sushanth.poplauncher.receiver.PopDeviceAdminReceiver::class.java)
+                    if (dpm != null && dpm.isAdminActive(adminComponent)) {
+                        dpm.lockNow()
+                    } else {
+                        Toast.makeText(context, "Enable Device Admin to lock screen with gestures", Toast.LENGTH_LONG).show()
+                        val intent = Intent(android.app.admin.DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+                            putExtra(android.app.admin.DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponent)
+                            putExtra(
+                                android.app.admin.DevicePolicyManager.EXTRA_ADD_EXPLANATION,
+                                "Pop Launcher requires Device Admin permission to turn off and lock the display when you trigger screen lock gestures."
+                            )
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        context.startActivity(intent)
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("HomeScreen", "Failed to lock screen", e)
+                    Toast.makeText(context, "Unable to lock screen", Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }
@@ -315,37 +368,24 @@ fun HomeScreen(
                             .fillMaxSize()
                             .pointerInput(settings) {
                                 val touchSlop = viewConfiguration.touchSlop
-                                val swipeThreshold = touchSlop * 2.8f
-                                val pinchThreshold = touchSlop * 2.5f
-
                                 awaitEachGesture {
                                     val down = awaitFirstDown(requireUnconsumed = false)
                                     val downTime = System.currentTimeMillis()
                                     val startPos = down.position
-                                    var lastPointerPos = startPos
+                                    var isDragDetected = false
+                                    var actionExecuted = false
 
-                                    val isDoubleTapCandidate = (downTime - lastTapTime < 340L)
-                                    if (isDoubleTapCandidate) {
+                                    if (downTime - lastTapTime < 350L) {
                                         tapCount++
                                         pendingTapJob?.cancel()
                                     } else {
                                         tapCount = 1
                                         pendingTapJob?.cancel()
                                     }
-                                    val currentTapCount = tapCount
-
-                                    var isHorizontalDrag = false
-                                    var isVerticalDrag = false
-                                    var gestureFired = false
-                                    var multiTouchDetected = false
-
-                                    var initialPinchDistance = 0f
-                                    var initialMidpoint = Offset.Zero
-                                    var twoFingerDownTime = 0L
 
                                     val longPressJob = scope.launch {
                                         delay(viewConfiguration.longPressTimeoutMillis)
-                                        if (!isVerticalDrag && !isHorizontalDrag && !multiTouchDetected && !gestureFired) {
+                                        if (!isDragDetected) {
                                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                             isContextMenuOpen = true
                                             tapCount = 0
@@ -355,206 +395,80 @@ fun HomeScreen(
 
                                     while (true) {
                                         val event = awaitPointerEvent()
-                                        val pressedPointers = event.changes.filter { it.pressed }
+                                        val current = event.changes.firstOrNull { it.id == down.id }
+                                            ?: event.changes.firstOrNull()
+                                            ?: break
 
-                                        if (pressedPointers.isEmpty()) {
+                                        if (!current.pressed) {
                                             longPressJob.cancel()
+                                            if (!isDragDetected) {
+                                                current.consume()
+                                                lastTapTime = System.currentTimeMillis()
+                                                val currentTaps = tapCount
+                                                if (currentTaps >= 3) {
+                                                    tapCount = 0
+                                                    lastTapTime = 0L
+                                                    executeGestureAction(settings.gestureTripleTap)
+                                                } else if (currentTaps == 2) {
+                                                    pendingTapJob = scope.launch {
+                                                        delay(260L)
+                                                        tapCount = 0
+                                                        lastTapTime = 0L
+                                                        executeGestureAction(settings.gestureDoubleTap)
+                                                    }
+                                                } else if (currentTaps == 1) {
+                                                    pendingTapJob = scope.launch {
+                                                        delay(260L)
+                                                        tapCount = 0
+                                                        lastTapTime = 0L
+                                                        if (isContextMenuOpen) isContextMenuOpen = false
+                                                    }
+                                                }
+                                            } else {
+                                                tapCount = 0
+                                                lastTapTime = 0L
+                                            }
                                             break
                                         }
 
-                                        // Multi-touch tracking (2 or more fingers)
-                                        if (pressedPointers.size >= 2) {
-                                            longPressJob.cancel()
-                                            pendingTapJob?.cancel()
-                                            tapCount = 0
-                                            lastTapTime = 0L
+                                        val dx = current.position.x - startPos.x
+                                        val dy = current.position.y - startPos.y
 
-                                            val p1 = pressedPointers[0]
-                                            val p2 = pressedPointers[1]
-                                            lastPointerPos = p1.position
+                                        if (!actionExecuted) {
+                                            val absDx = kotlin.math.abs(dx)
+                                            val absDy = kotlin.math.abs(dy)
 
-                                            if (!multiTouchDetected) {
-                                                multiTouchDetected = true
-                                                twoFingerDownTime = System.currentTimeMillis()
-                                                val dx = p2.position.x - p1.position.x
-                                                val dy = p2.position.y - p1.position.y
-                                                initialPinchDistance = kotlin.math.hypot(dx, dy)
-                                                initialMidpoint = Offset(
-                                                    (p1.position.x + p2.position.x) / 2f,
-                                                    (p1.position.y + p2.position.y) / 2f
-                                                )
-                                            } else if (!gestureFired) {
-                                                val dx = p2.position.x - p1.position.x
-                                                val dy = p2.position.y - p1.position.y
-                                                val currentDistance = kotlin.math.hypot(dx, dy)
-                                                val currentMid = Offset(
-                                                    (p1.position.x + p2.position.x) / 2f,
-                                                    (p1.position.y + p2.position.y) / 2f
-                                                )
-
-                                                val distDelta = currentDistance - initialPinchDistance
-                                                val midDeltaY = currentMid.y - initialMidpoint.y
-                                                val midDeltaX = currentMid.x - initialMidpoint.x
-
-                                                if (distDelta < -pinchThreshold && kotlin.math.abs(distDelta) > kotlin.math.abs(midDeltaY) * 1.15f) {
-                                                    gestureFired = true
-                                                    event.changes.forEach { it.consume() }
-                                                    executeGestureAction(settings.gesturePinchIn)
-                                                } else if (distDelta > pinchThreshold && distDelta > kotlin.math.abs(midDeltaY) * 1.15f) {
-                                                    gestureFired = true
-                                                    event.changes.forEach { it.consume() }
-                                                    executeGestureAction(settings.gesturePinchOut)
-                                                } else if (kotlin.math.abs(midDeltaY) > swipeThreshold &&
-                                                    kotlin.math.abs(midDeltaY) > kotlin.math.abs(midDeltaX) * 1.05f
-                                                ) {
-                                                    gestureFired = true
-                                                    event.changes.forEach { it.consume() }
-                                                    if (midDeltaY > 0) {
-                                                        executeGestureAction(settings.gestureTwoFingerSwipeDown)
-                                                    } else {
-                                                        executeGestureAction(settings.gestureTwoFingerSwipeUp)
-                                                    }
-                                                }
-                                            }
-
-                                            if (gestureFired) {
-                                                event.changes.forEach { it.consume() }
-                                            }
-                                            continue
-                                        }
-
-                                        // Single finger tracking
-                                        val current = pressedPointers.first()
-                                        lastPointerPos = current.position
-                                        val totalDx = current.position.x - startPos.x
-                                        val totalDy = current.position.y - startPos.y
-
-                                        if (multiTouchDetected) {
-                                            continue
-                                        }
-
-                                        if (!isHorizontalDrag && !isVerticalDrag) {
-                                            val absX = kotlin.math.abs(totalDx)
-                                            val absY = kotlin.math.abs(totalDy)
-
-                                            if (absX > touchSlop && absX > absY * 1.25f) {
-                                                // Horizontal movement: allow HorizontalPager to handle page scroll
-                                                isHorizontalDrag = true
+                                            // Predominantly horizontal swipe: allow HorizontalPager to handle page scroll
+                                            if (absDx > touchSlop && absDx > absDy * 1.15f) {
+                                                isDragDetected = true
                                                 longPressJob.cancel()
-                                                pendingTapJob?.cancel()
-                                                tapCount = 0
-                                                lastTapTime = 0L
-                                            } else if (absY > touchSlop && absY > absX * 1.05f) {
-                                                // Vertical movement: lock as launcher gesture and consume
-                                                isVerticalDrag = true
+                                            } else if (absDy > touchSlop && absDy > absDx) {
+                                                // Predominantly vertical swipe: execute launcher gesture
+                                                isDragDetected = true
+                                                actionExecuted = true
                                                 longPressJob.cancel()
                                                 current.consume()
-                                            }
-                                        } else if (isVerticalDrag) {
-                                            current.consume()
 
-                                            if (!gestureFired && kotlin.math.abs(totalDy) > swipeThreshold) {
-                                                gestureFired = true
-                                                tapCount = 0
-                                                lastTapTime = 0L
-                                                if (currentTapCount >= 2) {
-                                                    if (totalDy > 0) {
-                                                        executeGestureAction(settings.gestureDoubleTapSwipeDown)
-                                                    } else {
+                                                if (tapCount >= 2) {
+                                                    tapCount = 0
+                                                    lastTapTime = 0L
+                                                    if (dy < 0) {
                                                         executeGestureAction(settings.gestureDoubleTapSwipeUp)
+                                                    } else {
+                                                        executeGestureAction(settings.gestureDoubleTapSwipeDown)
                                                     }
                                                 } else {
-                                                    if (totalDy > 0) {
+                                                    tapCount = 0
+                                                    lastTapTime = 0L
+                                                    if (dy > 0) {
                                                         executeGestureAction(settings.gestureSwipeDown)
                                                     } else {
                                                         executeGestureAction(settings.gestureSwipeUp)
                                                     }
                                                 }
                                             }
-                                        }
-                                    }
-
-                                    longPressJob.cancel()
-
-                                    // 1. Multi-touch completion (Two-Finger Tap)
-                                    if (multiTouchDetected) {
-                                        if (!gestureFired) {
-                                            val duration = System.currentTimeMillis() - twoFingerDownTime
-                                            if (duration < 420L) {
-                                                executeGestureAction(settings.gestureTwoFingerTap)
-                                            }
-                                        }
-                                        tapCount = 0
-                                        lastTapTime = 0L
-                                        return@awaitEachGesture
-                                    }
-
-                                    // 2. Gesture already fired during continuous drag
-                                    if (gestureFired) {
-                                        tapCount = 0
-                                        lastTapTime = 0L
-                                        return@awaitEachGesture
-                                    }
-
-                                    // 3. User swiped horizontally
-                                    if (isHorizontalDrag) {
-                                        tapCount = 0
-                                        lastTapTime = 0L
-                                        return@awaitEachGesture
-                                    }
-
-                                    // 4. Quick vertical flick that ended before exceeding continuous threshold
-                                    if (isVerticalDrag) {
-                                        val finalDy = lastPointerPos.y - startPos.y
-                                        if (kotlin.math.abs(finalDy) > touchSlop * 1.7f) {
-                                            if (currentTapCount >= 2) {
-                                                if (finalDy > 0) {
-                                                    executeGestureAction(settings.gestureDoubleTapSwipeDown)
-                                                } else {
-                                                    executeGestureAction(settings.gestureDoubleTapSwipeUp)
-                                                }
-                                            } else {
-                                                if (finalDy > 0) {
-                                                    executeGestureAction(settings.gestureSwipeDown)
-                                                } else {
-                                                    executeGestureAction(settings.gestureSwipeUp)
-                                                }
-                                            }
-                                        }
-                                        tapCount = 0
-                                        lastTapTime = 0L
-                                        return@awaitEachGesture
-                                    }
-
-                                    // 5. Clean tap release without drag
-                                    lastTapTime = System.currentTimeMillis()
-                                    if (tapCount >= 3) {
-                                        tapCount = 0
-                                        lastTapTime = 0L
-                                        pendingTapJob?.cancel()
-                                        executeGestureAction(settings.gestureTripleTap)
-                                    } else if (tapCount == 2) {
-                                        val hasTripleTapAction = settings.gestureTripleTap.actionType != GestureActionType.NONE
-                                        pendingTapJob = scope.launch {
-                                            delay(if (hasTripleTapAction) 240L else 140L)
-                                            tapCount = 0
-                                            lastTapTime = 0L
-                                            executeGestureAction(settings.gestureDoubleTap)
-                                        }
-                                    } else if (tapCount == 1) {
-                                        val hasDoubleTapAction = settings.gestureDoubleTap.actionType != GestureActionType.NONE ||
-                                                settings.gestureDoubleTapSwipeUp.actionType != GestureActionType.NONE ||
-                                                settings.gestureDoubleTapSwipeDown.actionType != GestureActionType.NONE ||
-                                                settings.gestureTripleTap.actionType != GestureActionType.NONE
-                                        pendingTapJob = scope.launch {
-                                            if (hasDoubleTapAction) {
-                                                delay(250L)
-                                            }
-                                            tapCount = 0
-                                            lastTapTime = 0L
-                                            if (isContextMenuOpen) {
-                                                isContextMenuOpen = false
-                                            }
+                                        } else {
+                                            current.consume()
                                         }
                                     }
                                 }
@@ -896,6 +810,23 @@ fun HomeScreen(
         }
 
         // =============================================================
+        // MULTI-BUBBLE PRIVATE SPACE OVERLAY
+        // =============================================================
+        privateSpaceBubblesList?.let { privateList ->
+            com.sushanth.poplauncher.bubble.MultiAppBubbleContainer(
+                apps = privateList,
+                bubbleConfig = bubbleConfig,
+                getAppIcon = { pkg -> appRepository.getAppIcon(pkg, settings.themePalette.isMonochrome) },
+                modifier = Modifier.fillMaxSize(),
+                onDismiss = { privateSpaceBubblesList = null },
+                onAppLaunch = { launchedApp ->
+                    privateSpaceBubblesList = null
+                    onLaunchEntity(launchedApp, "")
+                }
+            )
+        }
+
+        // =============================================================
         // FIRST-RUN ONBOARDING SEARCH PREFERENCES & PERMISSIONS OVERLAY
         // =============================================================
         if (!settings.hasCompletedOnboarding) {
@@ -911,16 +842,16 @@ fun HomeScreen(
 
 private fun expandNotificationShade(context: android.content.Context) {
     try {
-        val statusBarService = context.getSystemService("statusbar")
+        val statusBarService = context.getSystemService("statusbar") ?: return
         val statusBarManager = Class.forName("android.app.StatusBarManager")
-        val expandMethod = statusBarManager.getMethod("expandNotificationsPanel")
-        expandMethod.invoke(statusBarService)
-    } catch (_: Exception) {
-        try {
-            val intent = Intent(Settings.ACTION_SETTINGS).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(intent)
-        } catch (_: Exception) {}
+        val expandMethod = runCatching {
+            statusBarManager.getMethod("expandNotificationsPanel")
+        }.getOrNull() ?: runCatching {
+            statusBarManager.getMethod("expand")
+        }.getOrNull()
+
+        expandMethod?.invoke(statusBarService)
+    } catch (e: Exception) {
+        android.util.Log.e("HomeScreen", "Failed to expand notification shade", e)
     }
 }

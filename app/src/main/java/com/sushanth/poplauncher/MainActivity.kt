@@ -605,7 +605,7 @@ class MainActivity : ComponentActivity() {
             if (entity.id.startsWith("system:private_space")) {
                 val opened = com.sushanth.poplauncher.util.PrivateSpaceHelper.openPrivateSpace(this)
                 if (!opened) {
-                    Toast.makeText(this, "Private Space is not available on this device", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "Private Space is not set up on this device", Toast.LENGTH_SHORT).show()
                 }
                 return
             }

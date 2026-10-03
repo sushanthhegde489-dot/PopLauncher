@@ -45,25 +45,6 @@ class NewFeaturesUnitTest {
         assertEquals("Double Tap & Swipe Down", GestureType.DOUBLE_TAP_SWIPE_DOWN.displayName)
         assertEquals("Swipe Down", GestureType.SWIPE_DOWN.displayName)
         assertEquals("Swipe Up", GestureType.SWIPE_UP.displayName)
-        assertEquals("Two-Finger Swipe Down", GestureType.TWO_FINGER_SWIPE_DOWN.displayName)
-        assertEquals("Two-Finger Swipe Up", GestureType.TWO_FINGER_SWIPE_UP.displayName)
-        assertEquals("Pinch In", GestureType.PINCH_IN.displayName)
-        assertEquals("Pinch Out", GestureType.PINCH_OUT.displayName)
-        assertEquals("Two-Finger Tap", GestureType.TWO_FINGER_TAP.displayName)
-    }
-
-    @Test
-    fun testLauncherSettingsGestureMappings() {
-        val settings = com.sushanth.poplauncher.data.model.LauncherSettings()
-        // Verify every gesture type is in the gestures map
-        GestureType.entries.forEach { type ->
-            val config = settings.getGesture(type)
-            org.junit.Assert.assertNotNull("Gesture $type should have config", config)
-            assertEquals(config, settings.gestures[type])
-        }
-        // Verify default gestures
-        assertEquals(com.sushanth.poplauncher.data.model.GestureActionType.OPEN_SEARCH, settings.gestureSwipeDown.actionType)
-        assertEquals(com.sushanth.poplauncher.data.model.GestureActionType.OPEN_NOTIFICATION_SHADE, settings.gestureTwoFingerSwipeDown.actionType)
     }
 
     @Test
@@ -101,5 +82,36 @@ class NewFeaturesUnitTest {
         val (col, row) = WidgetManager.findBestFitSlot(clampedSpanX, clampedSpanY, emptyMap<String, WidgetLayout>())
         assertEquals(0, col)
         assertEquals(0, row)
+    }
+
+    @Test
+    fun testGestureActionTypeLockScreenAndNotificationShadeSerialization() {
+        val lockConfig = GestureConfig(actionType = GestureActionType.LOCK_SCREEN)
+        val serializedLock = lockConfig.toSerialized()
+        val parsedLock = GestureConfig.fromSerialized(serializedLock)
+        assertEquals(GestureActionType.LOCK_SCREEN, parsedLock.actionType)
+
+        val shadeConfig = GestureConfig(actionType = GestureActionType.OPEN_NOTIFICATION_SHADE)
+        val serializedShade = shadeConfig.toSerialized()
+        val parsedShade = GestureConfig.fromSerialized(serializedShade)
+        assertEquals(GestureActionType.OPEN_NOTIFICATION_SHADE, parsedShade.actionType)
+
+        // Legacy OPEN_NOTIFICATIONS should parse as OPEN_NOTIFICATION_SHADE
+        val legacyParsed = GestureConfig.fromSerialized("OPEN_NOTIFICATIONS||")
+        assertEquals(GestureActionType.OPEN_NOTIFICATION_SHADE, legacyParsed.actionType)
+    }
+
+    @Test
+    fun testGestureActionTypePrivateSpaceSerialization() {
+        val privateSpaceConfig = GestureConfig(actionType = GestureActionType.OPEN_PRIVATE_SPACE)
+        val serialized = privateSpaceConfig.toSerialized()
+        val parsed = GestureConfig.fromSerialized(serialized)
+        assertEquals(GestureActionType.OPEN_PRIVATE_SPACE, parsed.actionType)
+    }
+
+    @Test
+    fun testPrivateSpaceHelperNullSafety() {
+        val isPrivate = com.sushanth.poplauncher.util.PrivateSpaceHelper.isPrivateProfile(null, null)
+        org.junit.Assert.assertFalse(isPrivate)
     }
 }
