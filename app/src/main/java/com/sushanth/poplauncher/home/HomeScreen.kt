@@ -773,29 +773,39 @@ fun HomeScreen(
         // =============================================================
         if (isPrivateSpaceBubblesOpen) {
             val privateAppsList = remember {
-                with(appRepository) {
+                val installed = with(appRepository) {
                     getPrivateSpaceApps().map { it.toSearchEntity(isFriction = false) }
                 }
+                val addAppsItem = com.sushanth.poplauncher.data.model.AppEntity(
+                    id = "private_space:add_apps",
+                    title = "+ Add Apps",
+                    subtitle = "Install into Private Space",
+                    source = "Private Space",
+                    packageName = "com.android.vending",
+                    launchIntent = null,
+                    isPrivate = true
+                )
+                listOf(addAppsItem) + installed
             }
 
-            if (privateAppsList.isNotEmpty()) {
-                com.sushanth.poplauncher.bubble.MultiAppBubbleContainer(
-                    apps = privateAppsList,
-                    bubbleConfig = bubbleConfig,
-                    getAppIcon = { pkg -> appRepository.getAppIcon(pkg, settings.themePalette.isMonochrome) },
-                    modifier = Modifier.fillMaxSize(),
-                    onDismiss = { isPrivateSpaceBubblesOpen = false },
-                    onAppLaunch = { launchedApp ->
-                        isPrivateSpaceBubblesOpen = false
+            com.sushanth.poplauncher.bubble.MultiAppBubbleContainer(
+                apps = privateAppsList,
+                bubbleConfig = bubbleConfig,
+                getAppIcon = { pkg -> appRepository.getAppIcon(pkg, settings.themePalette.isMonochrome) },
+                modifier = Modifier.fillMaxSize(),
+                onDismiss = { isPrivateSpaceBubblesOpen = false },
+                onAppLaunch = { launchedApp ->
+                    isPrivateSpaceBubblesOpen = false
+                    if (launchedApp.id == "private_space:add_apps") {
+                        val opened = com.sushanth.poplauncher.util.PrivateSpaceHelper.openAddAppsToPrivateSpace(context)
+                        if (!opened) {
+                            Toast.makeText(context, "Cannot open Private Space app store or settings", Toast.LENGTH_SHORT).show()
+                        }
+                    } else {
                         onLaunchEntity(launchedApp, "")
                     }
-                )
-            } else {
-                LaunchedEffect(Unit) {
-                    isPrivateSpaceBubblesOpen = false
-                    Toast.makeText(context, "Private Space is empty", Toast.LENGTH_SHORT).show()
                 }
-            }
+            )
         }
 
         // =============================================================

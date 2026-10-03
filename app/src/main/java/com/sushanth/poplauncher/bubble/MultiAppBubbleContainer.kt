@@ -253,6 +253,20 @@ private fun PhysicalBubbleItem(
                         .size(44.dp)
                         .clip(CircleShape)
                 )
+            } else if (body.app.id == "private_space:add_apps") {
+                Text(
+                    text = "+",
+                    color = androidx.compose.ui.graphics.Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 32.sp
+                )
+            } else {
+                Text(
+                    text = body.app.title.take(1).uppercase(),
+                    color = androidx.compose.ui.graphics.Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 24.sp
+                )
             }
         }
 

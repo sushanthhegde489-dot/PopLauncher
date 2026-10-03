@@ -35,9 +35,10 @@ class FileSearchProvider(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val hasImg = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
             val hasVid = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED
+            val hasAud = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED
             val hasVisual = Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
                     ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) == PackageManager.PERMISSION_GRANTED
-            return hasImg || hasVid || hasVisual
+            return hasImg || hasVid || hasAud || hasVisual
         }
         return ContextCompat.checkSelfPermission(
             context,
@@ -181,6 +182,25 @@ class FileSearchProvider(
                 } ?: Log.e("PopLauncher", "FileSearchProvider cursor is null for query: $trimmed")
             } catch (e: Exception) {
                 Log.e("PopLauncher", "FileSearchProvider exception: ${e.message}", e)
+            }
+
+            // If full storage access is granted (Environment.isExternalStorageManager() or legacy read storage),
+            // complement MediaStore index with fast on-disk scan in documents/downloads.
+            val canScanDisk = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                Environment.isExternalStorageManager()
+            } else {
+                ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+            }
+
+            if (canScanDisk) {
+                val diskFiles = searchDiskStorage(trimmed, context)
+                val existingTitles = results.mapTo(HashSet()) { it.title.lowercase() }
+                for (df in diskFiles) {
+                    if (df.title.lowercase() !in existingTitles) {
+                        results.add(df)
+                    }
+                    if (results.size >= 25) break
+                }
             }
 
             results

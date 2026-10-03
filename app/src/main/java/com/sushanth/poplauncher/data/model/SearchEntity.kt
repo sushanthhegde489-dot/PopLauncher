@@ -35,6 +35,7 @@ data class AppEntity(
     val componentName: ComponentName? = null,
     val userHandle: UserHandle? = null,
     val isClone: Boolean = false,
+    val isPrivate: Boolean = false,
     override val launchIntent: Intent?,
     val isFrictionApp: Boolean = false,
     override val searchableTerms: List<String> = listOf(title, packageName)

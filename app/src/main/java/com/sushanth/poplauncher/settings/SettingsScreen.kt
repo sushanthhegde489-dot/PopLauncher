@@ -742,8 +742,8 @@ fun SettingsScreen(
                 val fileEnabled = settings.enabledProviders.contains(SearchType.FILE)
                 val fileAccess = mainActivity?.getFileAccessState() ?: com.sushanth.poplauncher.FileAccessState.MEDIASTORE_ONLY
                 val fileSubtitle = when (fileAccess) {
-                    com.sushanth.poplauncher.FileAccessState.ALL_FILES,
-                    com.sushanth.poplauncher.FileAccessState.MEDIASTORE_ONLY -> "Search local files and documents."
+                    com.sushanth.poplauncher.FileAccessState.ALL_FILES -> "Full device storage search enabled."
+                    com.sushanth.poplauncher.FileAccessState.MEDIASTORE_ONLY -> "Standard media & downloads search — tap to grant full disk access."
                     com.sushanth.poplauncher.FileAccessState.DENIED -> "Storage permission required — tap to grant."
                 }
 
@@ -758,6 +758,8 @@ fun SettingsScreen(
                         )
                         if (enabled && fileAccess == com.sushanth.poplauncher.FileAccessState.DENIED) {
                             mainActivity?.requestPermissionForProvider(SearchType.FILE)
+                        } else if (enabled && fileAccess == com.sushanth.poplauncher.FileAccessState.MEDIASTORE_ONLY) {
+                            mainActivity?.requestAllFilesAccess()
                         }
                     }
                 )

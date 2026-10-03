@@ -24,6 +24,7 @@ data class InstalledApp(
     val componentName: ComponentName? = null,
     val userHandle: UserHandle? = null,
     val isClone: Boolean = false,
+    val isPrivate: Boolean = false,
     val label: String,
     val normalizedLabel: String,
     val icon: Drawable?,
@@ -32,16 +33,20 @@ data class InstalledApp(
     val initials: String = ""
 ) {
     val uniqueId: String
-        get() = if (isClone) "$packageName#clone#${userHandle?.hashCode() ?: 1}" else packageName
+        get() = when {
+            isPrivate -> "$packageName#private#${userHandle?.hashCode() ?: 1}"
+            isClone -> "$packageName#clone#${userHandle?.hashCode() ?: 1}"
+            else -> packageName
+        }
 
     fun matchesIdentifier(id: String): Boolean {
         if (id == uniqueId) return true
-        if (!isClone && id == packageName) return true
+        if (!isClone && !isPrivate && id == packageName) return true
         return false
     }
 
     fun isContainedIn(idSet: Set<String>): Boolean {
-        return idSet.contains(uniqueId) || (!isClone && idSet.contains(packageName))
+        return idSet.contains(uniqueId) || (!isClone && !isPrivate && idSet.contains(packageName))
     }
 }
 
@@ -76,11 +81,15 @@ class AppRepository(private val context: Context) {
 
         if (launcherApps != null) {
             for (profile in profiles) {
-                // Do not expose Private Space apps in general launcher list
-                if (com.sushanth.poplauncher.util.PrivateSpaceHelper.isPrivateProfile(userManager, profile, context)) {
+                val isPrivate = com.sushanth.poplauncher.util.PrivateSpaceHelper.isPrivateProfile(userManager, profile, context)
+                val isQuiet = try { userManager?.isQuietModeEnabled(profile) ?: false } catch (_: Throwable) { false }
+
+                // If private profile is currently locked in quiet mode, never expose its apps
+                if (isPrivate && isQuiet) {
                     continue
                 }
-                val isCloneProfile = profile != myUserHandle
+
+                val isCloneProfile = profile != myUserHandle && !isPrivate
                 val activities = try {
                     launcherApps.getActivityList(null, profile)
                 } catch (_: Exception) {
@@ -93,7 +102,11 @@ class AppRepository(private val context: Context) {
                         if (pkg == myPackageName) continue
 
                         val rawLabel = act.label.toString()
-                        val displayLabel = if (isCloneProfile) "$rawLabel (Clone)" else rawLabel
+                        val displayLabel = when {
+                            isPrivate -> "$rawLabel (Private)"
+                            isCloneProfile -> "$rawLabel (Clone)"
+                            else -> rawLabel
+                        }
                         val compName = act.componentName
                         val icon = try {
                             act.getBadgedIcon(context.resources.displayMetrics.densityDpi)
@@ -118,6 +131,7 @@ class AppRepository(private val context: Context) {
                                 componentName = compName,
                                 userHandle = profile,
                                 isClone = isCloneProfile,
+                                isPrivate = isPrivate,
                                 label = displayLabel,
                                 normalizedLabel = norm,
                                 icon = icon,
@@ -240,6 +254,7 @@ class AppRepository(private val context: Context) {
                         icon = icon,
                         launchIntent = intent,
                         isClone = false,
+                        isPrivate = true,
                         userHandle = privateProfile
                     )
                 )
@@ -392,14 +407,20 @@ class AppRepository(private val context: Context) {
             title = label,
             subtitle = when {
                 isFriction -> "Deliberate launch (Bubble)"
+                isPrivate -> "Private Space"
                 isClone -> "Dual / Cloned App"
                 else -> null
             },
-            source = if (isClone) "Cloned App" else "Application",
+            source = when {
+                isPrivate -> "Private Space"
+                isClone -> "Cloned App"
+                else -> "Application"
+            },
             packageName = packageName,
             componentName = componentName,
             userHandle = userHandle,
             isClone = isClone,
+            isPrivate = isPrivate,
             launchIntent = launchIntent,
             searchableTerms = listOf(label, packageName),
             isFrictionApp = isFriction

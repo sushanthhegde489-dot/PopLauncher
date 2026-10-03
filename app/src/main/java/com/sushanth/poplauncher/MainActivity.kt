@@ -337,6 +337,9 @@ class MainActivity : ComponentActivity() {
                     if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VIDEO) != PackageManager.PERMISSION_GRANTED) {
                         missing.add(Manifest.permission.READ_MEDIA_VIDEO)
                     }
+                    if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                        missing.add(Manifest.permission.READ_MEDIA_AUDIO)
+                    }
                 }
             }
             SearchType.MEDIA -> {
@@ -344,6 +347,7 @@ class MainActivity : ComponentActivity() {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                         missing.add(Manifest.permission.READ_MEDIA_IMAGES)
                         missing.add(Manifest.permission.READ_MEDIA_VIDEO)
+                        missing.add(Manifest.permission.READ_MEDIA_AUDIO)
                     } else {
                         missing.add(Manifest.permission.READ_EXTERNAL_STORAGE)
                     }
@@ -352,6 +356,29 @@ class MainActivity : ComponentActivity() {
             else -> {}
         }
         return missing
+    }
+
+    /**
+     * Launch system settings screen for all files management (Android 11+)
+     */
+    fun requestAllFilesAccess() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            try {
+                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+                startActivity(intent)
+            } catch (_: Exception) {
+                try {
+                    val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    Toast.makeText(this, "Unable to open Files Access settings: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        } else {
+            requestPermissionForProvider(SearchType.FILE)
+        }
     }
 
     /**
