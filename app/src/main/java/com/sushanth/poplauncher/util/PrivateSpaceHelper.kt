@@ -14,17 +14,15 @@ object PrivateSpaceHelper {
     private const val TAG = "PrivateSpaceHelper"
 
     /**
-     * Attempts to unlock or open Android default Private Space.
-     * Uses Android 15 (API 35+) Private Profile official APIs when available,
-     * or OEM Private Safe / Secure Folder / Private Space intents.
-     *
-     * IMPORTANT: Under no circumstances does this open Android System Settings.
+     * Attempts to open the Android default Private Space screen / container.
+     * Uses Android 15 (API 35+) system private space screen intents,
+     * or OEM Private Safe / Secure Folder / Second Space / Private Space screens.
      */
     fun openPrivateSpace(context: Context): Boolean {
         val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as? LauncherApps
         val userManager = context.getSystemService(Context.USER_SERVICE) as? UserManager
 
-        // 1. Android 15 Private Profile Discovery
+        // 1. If profile is locked in quiet mode, prompt system biometric / PIN unlock
         if (userManager != null && launcherApps != null) {
             try {
                 val allProfiles = mutableListOf<UserHandle>()
@@ -35,39 +33,37 @@ object PrivateSpaceHelper {
                     userManager.userProfiles?.let { allProfiles.addAll(it) }
                 } catch (_: Throwable) {}
 
-                val distinctProfiles = allProfiles.distinct()
-                val privateProfile = findPrivateProfile(context, userManager, launcherApps, distinctProfiles)
-
+                val privateProfile = findPrivateProfile(context, userManager, launcherApps, allProfiles.distinct())
                 if (privateProfile != null) {
                     val isQuiet = try {
                         userManager.isQuietModeEnabled(privateProfile)
                     } catch (_: Throwable) {
                         false
                     }
-
                     if (isQuiet) {
-                        // Request Android system unlock prompt (fingerprint / PIN / pattern)
                         val prompted = requestQuietModeUnlock(userManager, privateProfile)
                         if (prompted) {
                             android.widget.Toast.makeText(context, "Unlocking Private Space...", android.widget.Toast.LENGTH_SHORT).show()
                             return true
                         }
-                    } else {
-                        // Already unlocked! Caller should display Private Space bubbles.
-                        return true
                     }
                 }
             } catch (e: Throwable) {
-                Log.w(TAG, "Error checking Android 15 private profile", e)
+                Log.w(TAG, "Error checking Android 15 private profile state", e)
             }
         }
 
-        // 2. Android 15 System Private Space Gatekeeper / Authentication Activity
+        // 2. Android 15 System Private Space Screen / Authentication / Settings Activity
         val systemPrivateIntents = listOfNotNull(
+            Intent("android.settings.PRIVATE_SPACE_SETTINGS"),
+            Intent("com.android.settings.action.PRIVATE_SPACE_SETTINGS"),
+            Intent("com.android.settings.action.OPEN_PRIVATE_SPACE_SETTINGS"),
             Intent().apply {
                 setClassName("com.android.settings", "com.android.settings.privatespace.PrivateSpaceAuthenticationActivity")
             },
-            Intent("com.android.settings.action.OPEN_PRIVATE_SPACE_SETTINGS")
+            Intent().apply {
+                setClassName("com.android.settings", "com.android.settings.privatespace.PrivateProfileSettings")
+            }
         )
         for (intent in systemPrivateIntents) {
             if (canResolve(context, intent)) {

@@ -568,11 +568,7 @@ fun SettingsScreen(
                         title = "Default launcher",
                         subtitle = "Choose Pop Launcher as your Home app.",
                         onClick = {
-                            runCatching {
-                                context.startActivity(
-                                    Intent(Settings.ACTION_HOME_SETTINGS)
-                                )
-                            }
+                            requestSetDefaultLauncher(context)
                         }
                     )
 
@@ -2286,6 +2282,29 @@ fun isDefaultLauncher(
     return resolveInfo
         ?.activityInfo
         ?.packageName == context.packageName
+}
+
+fun requestSetDefaultLauncher(context: Context) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        val roleManager = context.getSystemService(RoleManager::class.java)
+        if (roleManager?.isRoleAvailable(RoleManager.ROLE_HOME) == true && !roleManager.isRoleHeld(RoleManager.ROLE_HOME)) {
+            val intent = roleManager.createRequestRoleIntent(RoleManager.ROLE_HOME)
+            try {
+                context.startActivity(intent)
+                return
+            } catch (_: Exception) {}
+        }
+    }
+
+    try {
+        val intent = Intent(Settings.ACTION_HOME_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
+    } catch (_: Exception) {
+        try {
+            val intent = Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+        } catch (_: Exception) {}
+    }
 }
 
 

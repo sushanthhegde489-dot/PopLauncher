@@ -32,6 +32,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
@@ -230,26 +231,9 @@ fun HomeScreen(
                 expandNotificationShade(context)
             }
             GestureActionType.OPEN_PRIVATE_SPACE -> {
-                val userManager = context.getSystemService(Context.USER_SERVICE) as? UserManager
-                val privateProfile = com.sushanth.poplauncher.util.PrivateSpaceHelper.getPrivateProfile(context)
-                if (privateProfile != null && userManager != null) {
-                    val isQuiet = try { userManager.isQuietModeEnabled(privateProfile) } catch (_: Throwable) { false }
-                    if (isQuiet) {
-                        com.sushanth.poplauncher.util.PrivateSpaceHelper.requestQuietModeUnlock(userManager, privateProfile)
-                        Toast.makeText(context, "Unlocking Private Space...", Toast.LENGTH_SHORT).show()
-                    } else {
-                        val privateApps = appRepository.getPrivateSpaceApps()
-                        if (privateApps.isNotEmpty()) {
-                            isPrivateSpaceBubblesOpen = true
-                        } else {
-                            Toast.makeText(context, "Private Space is empty", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                } else {
-                    val opened = com.sushanth.poplauncher.util.PrivateSpaceHelper.openPrivateSpace(context)
-                    if (!opened) {
-                        Toast.makeText(context, "Private Space is not supported or set up on this device", Toast.LENGTH_SHORT).show()
-                    }
+                val opened = com.sushanth.poplauncher.util.PrivateSpaceHelper.openPrivateSpace(context)
+                if (!opened) {
+                    Toast.makeText(context, "Private Space is not supported or set up on this device", Toast.LENGTH_SHORT).show()
                 }
             }
             GestureActionType.OPEN_HIDDEN_APPS -> {
@@ -308,11 +292,24 @@ fun HomeScreen(
         settingsRepository.getBubbleConfig()
     }
 
-    val isDefault = remember(settings) {
-        isDefaultLauncher(context)
+    var isDefault by remember {
+        mutableStateOf(isDefaultLauncher(context))
     }
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                isDefault = isDefaultLauncher(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
     val showOnboarding = !settings.hasCompletedOnboarding
-    val showDefaultLauncherBanner = settings.hasCompletedOnboarding && !isDefault && !settings.hasPromptedDefaultLauncher
+    val showDefaultLauncherBanner = settings.hasCompletedOnboarding && !isDefault
 
     // Wallpaper / Transparent / Solid Background Main Scaffold
     Box(
@@ -448,10 +445,7 @@ fun HomeScreen(
                                         .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f))
                                         .padding(16.dp)
                                         .clickable {
-                                            runCatching {
-                                                context.startActivity(Intent(Settings.ACTION_HOME_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                                            }
-                                            settingsRepository.setPromptedDefaultLauncher(true)
+                                            com.sushanth.poplauncher.settings.requestSetDefaultLauncher(context)
                                         }
                                  ) {
                                     Column {
