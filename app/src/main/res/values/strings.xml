@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">Pop Launcher</string>
+    <string name="app_description">Pop Launcher - A beautiful, fast, and intuitive Android launcher featuring floating bubbles, universal search, and customizable widgets</string>
+    <string name="privacy_policy_url">https://sushanthhegde489-dot.github.io/poplauncherprivacypolicy/privacy-policy.html</string>
+    <string name="custom_widgets_manifest_url">https://sushanthhegde489-dot.github.io/poplauncherprivacypolicy/custom-widgets/manifest.json</string>
+    <string name="tile_wallpaper_label">Launcher Wallpaper</string>
+    <string name="tile_monochrome_label">Monochrome Icons</string>
+</resources>

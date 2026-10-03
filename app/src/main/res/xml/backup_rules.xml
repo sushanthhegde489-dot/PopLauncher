@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- Exclude search index and cache data to preserve privacy and improve backup performance -->
+    <exclude domain="sharedpref" path="pop_search_index.xml"/>
+    <exclude domain="sharedpref" path="conversation_cache.xml"/>
+    <exclude domain="sharedpref" path="contact_cache.xml"/>
+
+    <!-- Exclude custom widget database as it may contain user-specific widget configurations -->
+    <exclude domain="database" path="custom_widgets.db"/>
+
+    <!-- Include application preferences and other essential data -->
+    <include domain="sharedpref" />
+    <include domain="database" />
+    <include domain="file" path="." />
+</full-backup-content>

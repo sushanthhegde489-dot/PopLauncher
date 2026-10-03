@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "widgets": [
+    {
+      "id": "hydration_tracker",
+      "name": "Hydration",
+      "description": "A small daily water counter with a progress bar.",
+      "version": 1,
+      "icon": "💧",
+      "definition": {
+        "id": "hydration_tracker",
+        "title": "Hydration",
+        "subtitle": "Daily water",
+        "style": "NOTHING_MINIMAL",
+        "state": { "count": "3", "goal": "8" },
+        "elements": [
+          {
+            "type": "row",
+            "alignment": "SPACE_BETWEEN",
+            "children": [
+              { "type": "text", "text": "{count} / {goal} glasses", "size": "BIG_NUMBER", "font": "SYSTEM", "color": "ACCENT" },
+              {
+                "type": "row",
+                "spacingDp": 8,
+                "alignment": "END",
+                "children": [
+                  { "type": "button", "label": "−", "action": "DECREMENT", "targetVar": "count", "param": "1" },
+                  { "type": "button", "label": "+", "action": "INCREMENT", "targetVar": "count", "param": "1" }
+                ]
+              }
+            ]
+          },
+          { "type": "spacer", "heightDp": 8 },
+          { "type": "progress_bar", "currentVar": "count", "maxVarOrVal": "goal", "color": "ACCENT" }
+        ]
+      }
+    },
+    {
+      "id": "quick_shortcuts",
+      "name": "Quick Shortcuts",
+      "description": "Shortcuts to open settings, launcher controls, and apps.",
+      "version": 1,
+      "icon": "⚙️",
+      "definition": {
+        "id": "quick_shortcuts",
+        "title": "Quick Shortcuts",
+        "subtitle": "System & Launcher controls",
+        "style": "NOTHING_MINIMAL",
+        "state": {},
+        "elements": [
+          {
+            "type": "row",
+            "alignment": "SPACE_BETWEEN",
+            "children": [
+              { "type": "button", "label": "Wi-Fi", "action": "OPEN_SETTINGS", "param": "wifi" },
+              { "type": "button", "label": "Bluetooth", "action": "OPEN_SETTINGS", "param": "bluetooth" },
+              { "type": "button", "label": "Launcher", "action": "OPEN_LAUNCHER_SETTINGS" }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
