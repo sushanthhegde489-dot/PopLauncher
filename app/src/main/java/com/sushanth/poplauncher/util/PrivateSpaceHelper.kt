@@ -53,23 +53,8 @@ object PrivateSpaceHelper {
                             return true
                         }
                     } else {
-                        // Already unlocked! Launch private profile's primary activity
-                        val privateApps = try {
-                            launcherApps.getActivityList(null, privateProfile)
-                        } catch (_: Throwable) {
-                            emptyList()
-                        }
-                        if (privateApps.isNotEmpty()) {
-                            try {
-                                launcherApps.startMainActivity(privateApps.first().componentName, privateProfile, null, null)
-                                return true
-                            } catch (e: Exception) {
-                                Log.w(TAG, "Failed to start private profile main activity", e)
-                            }
-                        } else {
-                            android.widget.Toast.makeText(context, "Private Space is unlocked", android.widget.Toast.LENGTH_SHORT).show()
-                            return true
-                        }
+                        // Already unlocked! Caller should display Private Space bubbles.
+                        return true
                     }
                 }
             } catch (e: Throwable) {
@@ -149,7 +134,20 @@ object PrivateSpaceHelper {
         return false
     }
 
-    private fun requestQuietModeUnlock(userManager: UserManager, profile: UserHandle): Boolean {
+    fun getPrivateProfile(context: Context): UserHandle? {
+        val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as? LauncherApps ?: return null
+        val userManager = context.getSystemService(Context.USER_SERVICE) as? UserManager ?: return null
+        val allProfiles = mutableListOf<UserHandle>()
+        try {
+            allProfiles.addAll(launcherApps.profiles)
+        } catch (_: Throwable) {}
+        try {
+            userManager.userProfiles?.let { allProfiles.addAll(it) }
+        } catch (_: Throwable) {}
+        return findPrivateProfile(context, userManager, launcherApps, allProfiles.distinct())
+    }
+
+    fun requestQuietModeUnlock(userManager: UserManager, profile: UserHandle): Boolean {
         return try {
             val umMethod = userManager.javaClass.getMethod(
                 "requestQuietModeEnabled",

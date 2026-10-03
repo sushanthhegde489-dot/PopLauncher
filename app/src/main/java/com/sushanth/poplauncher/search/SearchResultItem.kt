@@ -42,8 +42,10 @@ import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.material.icons.outlined.Widgets
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -390,12 +392,25 @@ private fun PersonResultCard(
                 }
             }
 
-            Icon(
-                imageVector = Icons.Outlined.Call,
-                contentDescription = "Call",
-                tint = MaterialTheme.colorScheme.secondary,
-                modifier = Modifier.size(20.dp)
-            )
+            val context = LocalContext.current
+            val primaryPhone = person.phoneNumbers.firstOrNull() ?: person.subtitle
+            IconButton(
+                onClick = {
+                    if (!primaryPhone.isNullOrBlank()) {
+                        (context as? com.sushanth.poplauncher.MainActivity)?.initiateDirectCall(primaryPhone)
+                    } else {
+                        onPrimaryClick()
+                    }
+                },
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Call,
+                    contentDescription = "Call",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
         }
 
         // Related aggregated conversations (WhatsApp, Telegram, Signal, Messages, Shortcuts)

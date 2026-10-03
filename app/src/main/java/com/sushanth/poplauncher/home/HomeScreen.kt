@@ -1,7 +1,9 @@
 package com.sushanth.poplauncher.home
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.UserManager
 import android.widget.Toast
 import androidx.core.net.toUri
 import android.provider.Settings
@@ -110,6 +112,7 @@ fun HomeScreen(
     var isSearchOpen by remember { mutableStateOf(false) }
     var isContextMenuOpen by remember { mutableStateOf(false) }
     var isHiddenAppsBubblesOpen by remember { mutableStateOf(false) }
+    var isPrivateSpaceBubblesOpen by remember { mutableStateOf(false) }
     var activeGroupBubbles by remember { mutableStateOf<com.sushanth.poplauncher.data.model.AppGroup?>(null) }
 
     val pagerState = rememberPagerState(pageCount = { 2 })
@@ -117,12 +120,14 @@ fun HomeScreen(
     val context = LocalContext.current
     val density = LocalDensity.current
 
-    BackHandler(enabled = isSearchOpen || isContextMenuOpen || searchState.activeBubbleApp != null || isHiddenAppsBubblesOpen || activeGroupBubbles != null) {
+    BackHandler(enabled = isSearchOpen || isContextMenuOpen || searchState.activeBubbleApp != null || isHiddenAppsBubblesOpen || activeGroupBubbles != null || isPrivateSpaceBubblesOpen) {
         if (searchState.activeBubbleApp != null) {
             searchQuery = ""
             searchRepository.clearSearch()
         } else if (activeGroupBubbles != null) {
             activeGroupBubbles = null
+        } else if (isPrivateSpaceBubblesOpen) {
+            isPrivateSpaceBubblesOpen = false
         } else if (isHiddenAppsBubblesOpen) {
             isHiddenAppsBubblesOpen = false
         } else if (isContextMenuOpen) {
@@ -225,9 +230,26 @@ fun HomeScreen(
                 expandNotificationShade(context)
             }
             GestureActionType.OPEN_PRIVATE_SPACE -> {
-                val opened = com.sushanth.poplauncher.util.PrivateSpaceHelper.openPrivateSpace(context)
-                if (!opened) {
-                    Toast.makeText(context, "Private Space is not supported or set up on this device", Toast.LENGTH_SHORT).show()
+                val userManager = context.getSystemService(Context.USER_SERVICE) as? UserManager
+                val privateProfile = com.sushanth.poplauncher.util.PrivateSpaceHelper.getPrivateProfile(context)
+                if (privateProfile != null && userManager != null) {
+                    val isQuiet = try { userManager.isQuietModeEnabled(privateProfile) } catch (_: Throwable) { false }
+                    if (isQuiet) {
+                        com.sushanth.poplauncher.util.PrivateSpaceHelper.requestQuietModeUnlock(userManager, privateProfile)
+                        Toast.makeText(context, "Unlocking Private Space...", Toast.LENGTH_SHORT).show()
+                    } else {
+                        val privateApps = appRepository.getPrivateSpaceApps()
+                        if (privateApps.isNotEmpty()) {
+                            isPrivateSpaceBubblesOpen = true
+                        } else {
+                            Toast.makeText(context, "Private Space is empty", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                } else {
+                    val opened = com.sushanth.poplauncher.util.PrivateSpaceHelper.openPrivateSpace(context)
+                    if (!opened) {
+                        Toast.makeText(context, "Private Space is not supported or set up on this device", Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
             GestureActionType.OPEN_HIDDEN_APPS -> {
@@ -742,6 +764,36 @@ fun HomeScreen(
             } else {
                 LaunchedEffect(group.id) {
                     activeGroupBubbles = null
+                }
+            }
+        }
+
+        // =============================================================
+        // MULTI-BUBBLE PRIVATE SPACE OVERLAY
+        // =============================================================
+        if (isPrivateSpaceBubblesOpen) {
+            val privateAppsList = remember {
+                with(appRepository) {
+                    getPrivateSpaceApps().map { it.toSearchEntity(isFriction = false) }
+                }
+            }
+
+            if (privateAppsList.isNotEmpty()) {
+                com.sushanth.poplauncher.bubble.MultiAppBubbleContainer(
+                    apps = privateAppsList,
+                    bubbleConfig = bubbleConfig,
+                    getAppIcon = { pkg -> appRepository.getAppIcon(pkg, settings.themePalette.isMonochrome) },
+                    modifier = Modifier.fillMaxSize(),
+                    onDismiss = { isPrivateSpaceBubblesOpen = false },
+                    onAppLaunch = { launchedApp ->
+                        isPrivateSpaceBubblesOpen = false
+                        onLaunchEntity(launchedApp, "")
+                    }
+                )
+            } else {
+                LaunchedEffect(Unit) {
+                    isPrivateSpaceBubblesOpen = false
+                    Toast.makeText(context, "Private Space is empty", Toast.LENGTH_SHORT).show()
                 }
             }
         }

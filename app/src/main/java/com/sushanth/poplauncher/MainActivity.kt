@@ -148,11 +148,57 @@ class MainActivity : ComponentActivity() {
         pendingWidgetInfo = null
     }
 
-    // Permission launcher for local search (Contacts, Files, Photos/Media, Notifications)
+    // Permission launcher for local search (Contacts, Files, Photos/Media)
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) {
         searchRepository.triggerReindex()
+    }
+
+    private var pendingCallPhoneNumber: String? = null
+
+    private val callPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        val number = pendingCallPhoneNumber
+        pendingCallPhoneNumber = null
+        if (isGranted && !number.isNullOrBlank()) {
+            makeDirectCall(number)
+        } else if (!number.isNullOrBlank()) {
+            openDialer(number)
+        }
+    }
+
+    fun initiateDirectCall(phoneNumber: String) {
+        if (phoneNumber.isBlank()) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED) {
+            makeDirectCall(phoneNumber)
+        } else {
+            pendingCallPhoneNumber = phoneNumber
+            callPermissionLauncher.launch(Manifest.permission.CALL_PHONE)
+        }
+    }
+
+    private fun makeDirectCall(phoneNumber: String) {
+        try {
+            val callIntent = Intent(Intent.ACTION_CALL).apply {
+                data = Uri.parse("tel:${Uri.encode(phoneNumber)}")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(callIntent)
+        } catch (_: Exception) {
+            openDialer(phoneNumber)
+        }
+    }
+
+    private fun openDialer(phoneNumber: String) {
+        try {
+            val dialIntent = Intent(Intent.ACTION_DIAL).apply {
+                data = Uri.parse("tel:${Uri.encode(phoneNumber)}")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(dialIntent)
+        } catch (_: Exception) {}
     }
 
     fun getFileAccessState(): FileAccessState {
@@ -209,9 +255,6 @@ class MainActivity : ComponentActivity() {
             }
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VIDEO) != PackageManager.PERMISSION_GRANTED) {
                 neededPermissions.add(Manifest.permission.READ_MEDIA_VIDEO)
-            }
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                neededPermissions.add(Manifest.permission.POST_NOTIFICATIONS)
             }
         } else {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
@@ -287,6 +330,13 @@ class MainActivity : ComponentActivity() {
                     ) {
                         missing.add(Manifest.permission.READ_EXTERNAL_STORAGE)
                     }
+                } else {
+                    if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) != PackageManager.PERMISSION_GRANTED) {
+                        missing.add(Manifest.permission.READ_MEDIA_IMAGES)
+                    }
+                    if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VIDEO) != PackageManager.PERMISSION_GRANTED) {
+                        missing.add(Manifest.permission.READ_MEDIA_VIDEO)
+                    }
                 }
             }
             SearchType.MEDIA -> {
@@ -345,6 +395,24 @@ class MainActivity : ComponentActivity() {
             val apps = appRepository.refreshApps()
             if (apps.isNotEmpty()) {
                 settingsRepository.cleanupUninstalled(apps.map { it.packageName }.toSet())
+            }
+            if (settingsRepository.settings.value.hasCompletedOnboarding) {
+                val missingFileOrMedia = mutableListOf<String>()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.READ_MEDIA_IMAGES) != PackageManager.PERMISSION_GRANTED) {
+                        missingFileOrMedia.add(Manifest.permission.READ_MEDIA_IMAGES)
+                    }
+                    if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.READ_MEDIA_VIDEO) != PackageManager.PERMISSION_GRANTED) {
+                        missingFileOrMedia.add(Manifest.permission.READ_MEDIA_VIDEO)
+                    }
+                } else {
+                    if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                        missingFileOrMedia.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+                    }
+                }
+                if (missingFileOrMedia.isNotEmpty()) {
+                    permissionLauncher.launch(missingFileOrMedia.toTypedArray())
+                }
             }
         }
 
@@ -537,6 +605,14 @@ class MainActivity : ComponentActivity() {
                     Toast.makeText(this, "Private Space is not available on this device", Toast.LENGTH_SHORT).show()
                 }
                 return
+            }
+
+            if (entity is com.sushanth.poplauncher.data.model.PersonEntity) {
+                val primaryPhone = entity.phoneNumbers.firstOrNull() ?: entity.subtitle
+                if (!primaryPhone.isNullOrBlank()) {
+                    initiateDirectCall(primaryPhone)
+                    return
+                }
             }
 
             if (entity is com.sushanth.poplauncher.data.model.AppEntity && entity.componentName != null && entity.userHandle != null) {

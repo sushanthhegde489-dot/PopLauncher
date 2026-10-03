@@ -186,6 +186,68 @@ class AppRepository(private val context: Context) {
         distinctApps
     }
 
+    fun getPrivateSpaceApps(): List<InstalledApp> {
+        val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as? LauncherApps ?: return emptyList()
+        val userManager = context.getSystemService(Context.USER_SERVICE) as? UserManager ?: return emptyList()
+        val privateProfile = com.sushanth.poplauncher.util.PrivateSpaceHelper.getPrivateProfile(context) ?: return emptyList()
+
+        val isQuiet = try {
+            userManager.isQuietModeEnabled(privateProfile)
+        } catch (_: Throwable) {
+            false
+        }
+        if (isQuiet) return emptyList()
+
+        val activities = try {
+            launcherApps.getActivityList(null, privateProfile)
+        } catch (_: Exception) {
+            emptyList()
+        }
+
+        val apps = mutableListOf<InstalledApp>()
+        for (act in activities) {
+            try {
+                val pkg = act.applicationInfo.packageName
+                if (pkg == context.packageName) continue
+
+                val displayLabel = act.label.toString()
+                val compName = act.componentName
+                val icon = try {
+                    act.getBadgedIcon(context.resources.displayMetrics.densityDpi)
+                } catch (_: Exception) {
+                    act.getIcon(context.resources.displayMetrics.densityDpi)
+                }
+
+                val intent = Intent(Intent.ACTION_MAIN).apply {
+                    addCategory(Intent.CATEGORY_LAUNCHER)
+                    component = compName
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+                }
+
+                val norm = displayLabel.trim().lowercase()
+                val w = norm.split(NON_ALPHANUMERIC_REGEX).filter { it.isNotBlank() }
+                val ini = w.mapNotNull { it.firstOrNull() }.joinToString("")
+
+                apps.add(
+                    InstalledApp(
+                        packageName = pkg,
+                        activityName = compName.className,
+                        componentName = compName,
+                        label = displayLabel,
+                        normalizedLabel = norm,
+                        words = w,
+                        initials = ini,
+                        icon = icon,
+                        launchIntent = intent,
+                        isClone = false,
+                        userHandle = privateProfile
+                    )
+                )
+            } catch (_: Exception) {}
+        }
+        return apps.distinctBy { "${it.packageName}#${it.componentName}" }.sortedBy { it.label.lowercase() }
+    }
+
     /**
      * Checks if the given query exactly matches any app in the user's friction list.
      * Specification:

@@ -57,9 +57,9 @@ fun OnboardingSearchSetupOverlay(
     val context = LocalContext.current
     val mainActivity = context as? MainActivity
 
-    // All switches OFF by default EXCEPT SearchType.APP which is ON
+    // Installed Apps, Files & Documents, and Photos & Videos are enabled by default
     var selectedProviders by remember {
-        mutableStateOf(setOf(SearchType.APP))
+        mutableStateOf(setOf(SearchType.APP, SearchType.FILE, SearchType.MEDIA))
     }
 
     fun toggleProvider(type: SearchType, enabled: Boolean) {

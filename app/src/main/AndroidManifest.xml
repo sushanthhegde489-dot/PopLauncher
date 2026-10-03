@@ -24,8 +24,8 @@
     <!-- On-device contact search -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
 
-    <!-- Notifications for launcher alerts and status -->
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Direct phone call on contact call button tap -->
+    <uses-permission android:name="android.permission.CALL_PHONE" />
 
     <!-- On-device local photos and media search -->
     <!-- Scoped storage: Use READ_EXTERNAL_STORAGE only on Android 12 and below -->
