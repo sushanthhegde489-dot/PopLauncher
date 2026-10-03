@@ -130,6 +130,7 @@ fun SettingsScreen(
     var isDefaultLauncher by remember {
         mutableStateOf(isDefaultLauncher(context))
     }
+    var permissionRefreshTick by remember { mutableStateOf(0) }
 
     var showCustomColor by remember { mutableStateOf(false) }
     var showPrivacy by remember { mutableStateOf(false) }
@@ -151,6 +152,7 @@ fun SettingsScreen(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 isDefaultLauncher = isDefaultLauncher(context)
+                permissionRefreshTick++
             }
         }
 
@@ -736,11 +738,13 @@ fun SettingsScreen(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
                 val fileEnabled = settings.enabledProviders.contains(SearchType.FILE)
-                val fileAccess = mainActivity?.getFileAccessState() ?: com.sushanth.poplauncher.FileAccessState.MEDIASTORE_ONLY
-                val fileSubtitle = when (fileAccess) {
-                    com.sushanth.poplauncher.FileAccessState.ALL_FILES -> "Full device storage search enabled."
-                    com.sushanth.poplauncher.FileAccessState.MEDIASTORE_ONLY -> "Standard media & downloads search — tap to grant full disk access."
-                    com.sushanth.poplauncher.FileAccessState.DENIED -> "Storage permission required — tap to grant."
+                val fileHasAccess = remember(permissionRefreshTick, fileEnabled) {
+                    mainActivity?.hasPermissionForProvider(SearchType.FILE) ?: true
+                }
+                val fileSubtitle = if (fileHasAccess) {
+                    "Search documents, PDFs and downloads on this device"
+                } else {
+                    "Needs file access to find documents and downloads"
                 }
 
                 SwitchPreferenceItem(
@@ -752,13 +756,19 @@ fun SettingsScreen(
                             SearchType.FILE,
                             enabled
                         )
-                        if (enabled && fileAccess == com.sushanth.poplauncher.FileAccessState.DENIED) {
-                            mainActivity?.requestPermissionForProvider(SearchType.FILE)
-                        } else if (enabled && fileAccess == com.sushanth.poplauncher.FileAccessState.MEDIASTORE_ONLY) {
-                            mainActivity?.requestAllFilesAccess()
+                        if (enabled && !fileHasAccess) {
+                            mainActivity?.requestFileSearchAccess()
                         }
                     }
                 )
+
+                if (fileEnabled && !fileHasAccess) {
+                    PreferenceItem(
+                        title = "Allow file access",
+                        subtitle = "Opens system settings — turn on \"Allow access to manage all files\"",
+                        onClick = { mainActivity?.requestFileSearchAccess() }
+                    )
+                }
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 

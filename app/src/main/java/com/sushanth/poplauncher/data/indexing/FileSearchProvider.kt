@@ -26,19 +26,16 @@ class FileSearchProvider(
 ) : SearchProvider {
 
     override val type: SearchType = SearchType.FILE
-    override val displayName: String = "Files & Documents"
+    override val displayName: String = "Files"
 
+    /**
+     * Android 11+: MediaStore hides PDFs, docs, archives and APKs from apps without
+     * "All files access", even when media permissions are granted. Report unavailable
+     * so the UI shows a grant prompt instead of silently returning zero results.
+     */
     override suspend fun isAvailable(context: Context): Boolean {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
-            return true
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val hasImg = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
-            val hasVid = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED
-            val hasAud = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED
-            val hasVisual = Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
-                    ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) == PackageManager.PERMISSION_GRANTED
-            return hasImg || hasVid || hasAud || hasVisual
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            return Environment.isExternalStorageManager()
         }
         return ContextCompat.checkSelfPermission(
             context,
@@ -212,22 +209,26 @@ class FileSearchProvider(
     ): List<FileEntity> {
         val diskResults = mutableListOf<FileEntity>()
         val root = Environment.getExternalStorageDirectory() ?: return emptyList()
-        val targetDirs = listOf(
-            Environment.DIRECTORY_DOWNLOADS,
-            Environment.DIRECTORY_DOCUMENTS,
-            Environment.DIRECTORY_PICTURES,
-            Environment.DIRECTORY_DCIM,
-            Environment.DIRECTORY_MOVIES,
-            Environment.DIRECTORY_MUSIC,
-            "Desktop"
-        ).map { File(root, it) }.filter { it.exists() && it.isDirectory }
+        if (!root.canRead()) return emptyList()
 
         val tokens = query.lowercase().split("\\s+".toRegex()).filter { it.isNotBlank() }
         if (tokens.isEmpty()) return emptyList()
 
-        for (dir in targetDirs) {
-            scanDirectory(dir, tokens, context, diskResults, maxDepth = 3)
-            if (diskResults.size >= 15) break
+        // Common folders first so the budget is spent where files usually live,
+        // then the rest of shared storage (WhatsApp, Telegram, custom folders, etc.).
+        val priority = listOf(
+            Environment.DIRECTORY_DOWNLOADS,
+            Environment.DIRECTORY_DOCUMENTS
+        ).map { File(root, it) }.filter { it.isDirectory }
+        val others = (root.listFiles() ?: emptyArray())
+            .filter { it.isDirectory && it !in priority && it.name != "Android" && !it.name.startsWith(".") }
+        val rootFiles = (root.listFiles() ?: emptyArray()).filter { it.isFile }
+
+        val budget = intArrayOf(MAX_SCANNED_ENTRIES)
+        rootFiles.forEach { matchFile(it, tokens, context, diskResults) }
+        for (dir in priority + others) {
+            if (diskResults.size >= MAX_DISK_RESULTS || budget[0] <= 0) break
+            scanDirectory(dir, tokens, context, diskResults, maxDepth = 5, budget = budget)
         }
         return diskResults
     }
@@ -237,59 +238,75 @@ class FileSearchProvider(
         tokens: List<String>,
         context: Context,
         results: MutableList<FileEntity>,
-        maxDepth: Int
+        maxDepth: Int,
+        budget: IntArray
     ) {
-        if (maxDepth <= 0 || !dir.canRead() || results.size >= 15) return
+        if (maxDepth <= 0 || !dir.canRead() || results.size >= MAX_DISK_RESULTS || budget[0] <= 0) return
         val files = dir.listFiles() ?: return
         for (file in files) {
-            if (results.size >= 15) break
-            val name = file.name
-            if (name.startsWith(".")) continue
+            if (results.size >= MAX_DISK_RESULTS || budget[0] <= 0) break
+            budget[0]--
+            if (file.name.startsWith(".")) continue
 
             if (file.isDirectory) {
-                scanDirectory(file, tokens, context, results, maxDepth - 1)
+                scanDirectory(file, tokens, context, results, maxDepth - 1, budget)
             } else {
-                val lowerName = name.lowercase()
-                val matchesAllTokens = tokens.all { token -> lowerName.contains(token) }
-                if (matchesAllTokens) {
-                    val fileUri = try {
-                        FileProvider.getUriForFile(
-                            context,
-                            "${context.packageName}.fileprovider",
-                            file
-                        )
-                    } catch (_: Exception) {
-                        Uri.fromFile(file)
-                    }
-                    val mime = context.contentResolver.getType(fileUri) ?: "*/*"
-                    val viewIntent = Intent(Intent.ACTION_VIEW).apply {
-                        setDataAndType(fileUri, mime)
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    val formattedSize = formatFileSize(file.length())
-                    val readableType = formatMimeType(mime, name)
-                    val parentName = file.parentFile?.name
-
-                    val subtitleParts = mutableListOf<String>()
-                    if (!parentName.isNullOrBlank()) subtitleParts.add(parentName)
-                    subtitleParts.add(readableType)
-                    if (formattedSize.isNotBlank()) subtitleParts.add(formattedSize)
-
-                    results.add(
-                        FileEntity(
-                            id = "file_disk:${file.absolutePath.hashCode()}",
-                            title = name,
-                            subtitle = subtitleParts.joinToString(" • "),
-                            source = "Files",
-                            mimeType = mime,
-                            size = file.length(),
-                            launchIntent = viewIntent,
-                            searchableTerms = listOf(name, readableType, parentName ?: "")
-                        )
-                    )
-                }
+                matchFile(file, tokens, context, results)
             }
         }
+    }
+
+    private fun matchFile(
+        file: File,
+        tokens: List<String>,
+        context: Context,
+        results: MutableList<FileEntity>
+    ) {
+        if (results.size >= MAX_DISK_RESULTS) return
+        val name = file.name
+        if (name.startsWith(".")) return
+        val lowerName = name.lowercase()
+        if (!tokens.all { token -> lowerName.contains(token) }) return
+        val fileUri = try {
+            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        } catch (_: Exception) {
+            return
+        }
+        val extension = name.substringAfterLast('.', "").lowercase()
+        val mime = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
+            ?: context.contentResolver.getType(fileUri)
+            ?: "*/*"
+        val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(fileUri, mime)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        val size = file.length()
+        val formattedSize = formatFileSize(size)
+        val readableType = formatMimeType(mime, name)
+        val parentName = file.parentFile?.name
+
+        val subtitleParts = mutableListOf<String>()
+        if (!parentName.isNullOrBlank()) subtitleParts.add(parentName)
+        subtitleParts.add(readableType)
+        if (formattedSize.isNotBlank()) subtitleParts.add(formattedSize)
+
+        results.add(
+            FileEntity(
+                id = "file_disk:${file.absolutePath.hashCode()}",
+                title = name,
+                subtitle = subtitleParts.joinToString(" • "),
+                source = "Files",
+                mimeType = mime,
+                size = size,
+                launchIntent = viewIntent,
+                searchableTerms = listOf(name, readableType, parentName ?: "")
+            )
+        )
+    }
+
+    private companion object {
+        const val MAX_DISK_RESULTS = 20
+        const val MAX_SCANNED_ENTRIES = 6000
     }
 
     internal fun buildFileSelection(trimmed: String, lowerQuery: String): Pair<String?, Array<String>?> {

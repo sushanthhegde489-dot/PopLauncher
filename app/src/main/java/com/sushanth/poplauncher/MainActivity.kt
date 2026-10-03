@@ -153,7 +153,14 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestMultiplePermissions()
     ) {
         searchRepository.triggerReindex()
+        if (pendingAllFilesRequest) {
+            pendingAllFilesRequest = false
+            if (needsAllFilesAccess()) requestAllFilesAccess()
+        }
     }
+
+    /** Set when a runtime request should be followed by the All files access screen. */
+    private var pendingAllFilesRequest = false
 
     private var pendingCallPhoneNumber: String? = null
 
@@ -280,10 +287,23 @@ class MainActivity : ComponentActivity() {
      * Request permissions for Contacts, Photos/Media, Storage, and Notifications.
      */
     fun requestSearchPermissions() {
-        val neededPermissions = getMissingRuntimePermissions()
-        if (neededPermissions.isNotEmpty()) {
-            permissionLauncher.launch(neededPermissions.toTypedArray())
-        }
+        val enabled = settingsRepository.settings.value.enabledProviders
+        requestPermissionsForProviders(enabled)
+    }
+
+    /**
+     * True on Android 11+ when the app can't see non-media files (PDFs, docs, archives, APKs).
+     * Media permissions alone only expose photos/videos/audio through MediaStore.
+     */
+    fun needsAllFilesAccess(): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()
+
+    /**
+     * Full file-search access flow: runtime storage/media permissions first, then the
+     * system "All files access" toggle on Android 11+.
+     */
+    fun requestFileSearchAccess() {
+        requestPermissionsForProviders(setOf(SearchType.FILE))
     }
 
     fun requestContactSearchPermission() {
@@ -295,6 +315,7 @@ class MainActivity : ComponentActivity() {
 
     /**
      * Requests ONLY the specific permissions required for the provided set of SearchTypes.
+     * When file search is included, follows up with the All files access screen if needed.
      */
     fun requestPermissionsForProviders(providers: Set<SearchType>) {
         val neededPermissions = mutableListOf<String>()
@@ -304,9 +325,13 @@ class MainActivity : ComponentActivity() {
             neededPermissions.addAll(missing)
         }
 
+        val wantsAllFiles = SearchType.FILE in providers && needsAllFilesAccess()
         val distinctNeeded = neededPermissions.distinct()
         if (distinctNeeded.isNotEmpty()) {
+            pendingAllFilesRequest = wantsAllFiles
             permissionLauncher.launch(distinctNeeded.toTypedArray())
+        } else if (wantsAllFiles) {
+            requestAllFilesAccess()
         }
     }
 
@@ -322,24 +347,15 @@ class MainActivity : ComponentActivity() {
                 }
             }
             SearchType.FILE -> {
-                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-                    if (ContextCompat.checkSelfPermission(
-                            this,
-                            Manifest.permission.READ_EXTERNAL_STORAGE
-                        ) != PackageManager.PERMISSION_GRANTED
-                    ) {
-                        missing.add(Manifest.permission.READ_EXTERNAL_STORAGE)
-                    }
-                } else {
-                    if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) != PackageManager.PERMISSION_GRANTED) {
-                        missing.add(Manifest.permission.READ_MEDIA_IMAGES)
-                    }
-                    if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VIDEO) != PackageManager.PERMISSION_GRANTED) {
-                        missing.add(Manifest.permission.READ_MEDIA_VIDEO)
-                    }
-                    if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-                        missing.add(Manifest.permission.READ_MEDIA_AUDIO)
-                    }
+                // Android 11+: documents are only visible with "All files access" (special
+                // app-op, requested via requestAllFilesAccess). No runtime dialog applies.
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R &&
+                    ContextCompat.checkSelfPermission(
+                        this,
+                        Manifest.permission.READ_EXTERNAL_STORAGE
+                    ) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    missing.add(Manifest.permission.READ_EXTERNAL_STORAGE)
                 }
             }
             SearchType.MEDIA -> {
@@ -386,7 +402,7 @@ class MainActivity : ComponentActivity() {
      */
     fun hasPermissionForProvider(provider: SearchType): Boolean {
         return when (provider) {
-            SearchType.FILE -> getFileAccessState() != FileAccessState.DENIED
+            SearchType.FILE -> getFileAccessState() == FileAccessState.ALL_FILES
             SearchType.MEDIA -> getMediaAccessState() != MediaAccessState.DENIED
             else -> getMissingPermissionsForProvider(provider).isEmpty()
         }
@@ -396,6 +412,10 @@ class MainActivity : ComponentActivity() {
      * Requests ONLY the specific permissions required for the specified provider.
      */
     fun requestPermissionForProvider(provider: SearchType) {
+        if (provider == SearchType.FILE) {
+            requestPermissionsForProviders(setOf(SearchType.FILE))
+            return
+        }
         val missing = getMissingPermissionsForProvider(provider)
         if (missing.isNotEmpty()) {
             permissionLauncher.launch(missing.toTypedArray())
@@ -513,9 +533,19 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private var lastFileAccessState: FileAccessState? = null
+
     override fun onResume() {
         super.onResume()
-        searchRepository.triggerReindexIfDue()
+        val fileAccess = getFileAccessState()
+        val changed = lastFileAccessState != null && lastFileAccessState != fileAccess
+        lastFileAccessState = fileAccess
+        if (changed) {
+            searchRepository.triggerReindex()
+            searchRepository.refreshCurrentQuery()
+        } else {
+            searchRepository.triggerReindexIfDue()
+        }
     }
 
     private val launcherAppsCallback = object : LauncherApps.Callback() {

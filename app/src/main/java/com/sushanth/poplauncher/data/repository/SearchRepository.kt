@@ -108,6 +108,13 @@ class SearchRepository(
         }
     }
 
+    /** Re-runs the visible query, e.g. after a permission was granted in system settings. */
+    fun refreshCurrentQuery() {
+        val currentQuery = _searchState.value.query
+        if (currentQuery.isBlank()) return
+        coroutineScope.launch { search(currentQuery) }
+    }
+
     /**
      * Called from [MainActivity.onResume] to throttle reindexing to at most once every 6 hours.
      * The timestamp lives here (not in the Activity) so it survives Activity recreation on
@@ -251,7 +258,11 @@ class SearchRepository(
                                     ProviderDiagnostic(
                                         providerType = provider.type,
                                         isAvailable = false,
-                                        errorMessage = "${provider.displayName} permission required"
+                                        errorMessage = if (provider.type == SearchType.FILE) {
+                                            "Allow file access to search documents, PDFs and downloads"
+                                        } else {
+                                            "${provider.displayName} permission required"
+                                        }
                                     ),
                                     emptyList<SearchEntity>()
                                 )

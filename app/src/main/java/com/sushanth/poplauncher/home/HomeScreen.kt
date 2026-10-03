@@ -295,11 +295,16 @@ fun HomeScreen(
     var isDefault by remember {
         mutableStateOf(isDefaultLauncher(context))
     }
+    val mainActivity = context as? com.sushanth.poplauncher.MainActivity
+    var fileAccessMissing by remember {
+        mutableStateOf(mainActivity?.hasPermissionForProvider(com.sushanth.poplauncher.data.model.SearchType.FILE) == false)
+    }
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
                 isDefault = isDefaultLauncher(context)
+                fileAccessMissing = mainActivity?.hasPermissionForProvider(com.sushanth.poplauncher.data.model.SearchType.FILE) == false
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -310,6 +315,8 @@ fun HomeScreen(
 
     val showOnboarding = !settings.hasCompletedOnboarding
     val showDefaultLauncherBanner = settings.hasCompletedOnboarding && !isDefault
+    val showFileAccessBanner = settings.hasCompletedOnboarding &&
+        settings.enabledProviders.contains(com.sushanth.poplauncher.data.model.SearchType.FILE) && fileAccessMissing
 
     // Wallpaper / Transparent / Solid Background Main Scaffold
     Box(
@@ -443,10 +450,10 @@ fun HomeScreen(
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(16.dp))
                                         .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f))
-                                        .padding(16.dp)
                                         .clickable {
                                             com.sushanth.poplauncher.settings.requestSetDefaultLauncher(context)
                                         }
+                                        .padding(16.dp)
                                  ) {
                                     Column {
                                         Text(
@@ -459,6 +466,32 @@ fun HomeScreen(
                                             text = "Tap to choose your Home app",
                                             fontSize = 13.sp,
                                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                        )
+                                    }
+                                }
+                            }
+
+                            if (showFileAccessBanner) {
+                                if (showDefaultLauncherBanner) Spacer(modifier = Modifier.height(10.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.85f))
+                                        .clickable { mainActivity?.requestFileSearchAccess() }
+                                        .padding(16.dp)
+                                ) {
+                                    Column {
+                                        Text(
+                                            text = "Allow file access",
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "Needed to find documents, PDFs and downloads in search",
+                                            fontSize = 13.sp,
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
                                         )
                                     }
                                 }

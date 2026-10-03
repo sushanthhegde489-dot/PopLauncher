@@ -90,7 +90,7 @@ fun SearchResultsList(
                         },
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Text("Grant Search Access", fontWeight = FontWeight.SemiBold)
+                        Text("Grant access", fontWeight = FontWeight.SemiBold)
                     }
                 }
             }

@@ -19,7 +19,7 @@ class FileAndMediaSearchProviderTest {
     fun testFileSearchProviderMetadata() {
         val provider = FileSearchProvider()
         assertEquals(SearchType.FILE, provider.type)
-        assertEquals("Files & Documents", provider.displayName)
+        assertEquals("Files", provider.displayName)
     }
 
     @Test
