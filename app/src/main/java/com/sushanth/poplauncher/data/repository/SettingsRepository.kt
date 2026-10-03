@@ -157,10 +157,14 @@ class SettingsRepository(context: Context) {
 
     fun cleanupUninstalled(validPackages: Set<String>) {
         if (validPackages.isEmpty()) return
-        setFrictionApps(_settings.value.frictionAppPackages.filter(validPackages::contains).toSet())
-        setHiddenApps(_settings.value.hiddenAppPackages.filter(validPackages::contains).toSet())
+        val isValid: (String) -> Boolean = { id ->
+            val pkg = id.substringBefore("#")
+            validPackages.contains(pkg)
+        }
+        setFrictionApps(_settings.value.frictionAppPackages.filter(isValid).toSet())
+        setHiddenApps(_settings.value.hiddenAppPackages.filter(isValid).toSet())
         _settings.value.conversationAppPackages?.let { convPackages ->
-            setConversationApps(convPackages.filter(validPackages::contains).toSet())
+            setConversationApps(convPackages.filter(isValid).toSet())
         }
     }
 

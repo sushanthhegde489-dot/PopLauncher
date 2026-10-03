@@ -72,9 +72,9 @@ fun HiddenAppsSetupScreen(
     var filterQuery by remember { mutableStateOf("") }
 
     val uniqueApps = remember(apps, hiddenPackages) {
-        apps.distinctBy { it.packageName }
+        apps.distinctBy { it.uniqueId }
             .sortedWith(
-                compareByDescending<InstalledApp> { hiddenPackages.contains(it.packageName) }
+                compareByDescending<InstalledApp> { it.isContainedIn(hiddenPackages) }
                     .thenBy { it.label.lowercase() }
             )
     }
@@ -84,7 +84,7 @@ fun HiddenAppsSetupScreen(
             uniqueApps
         } else {
             val q = filterQuery.trim().lowercase()
-            uniqueApps.filter { it.label.lowercase().contains(q) || it.packageName.lowercase().contains(q) }
+            uniqueApps.filter { it.label.lowercase().contains(q) }
         }
     }
 
@@ -206,11 +206,20 @@ fun HiddenAppsSetupScreen(
         ) {
             items(
                 items = filteredApps,
-                key = { it.packageName }
+                key = { it.uniqueId }
             ) { app ->
-                val isHidden = hiddenPackages.contains(app.packageName)
+                val isHidden = app.isContainedIn(hiddenPackages)
                 val bitmap = remember(app.icon, isMonochrome) {
                     app.icon?.let { com.sushanth.poplauncher.util.drawableToBitmap(it, isMonochrome) }
+                }
+
+                val toggleApp = {
+                    val newHidden = if (isHidden) {
+                        hiddenPackages.filterNot { app.matchesIdentifier(it) }.toSet()
+                    } else {
+                        hiddenPackages + app.uniqueId
+                    }
+                    settingsRepository.setHiddenApps(newHidden)
                 }
 
                 Row(
@@ -226,9 +235,7 @@ fun HiddenAppsSetupScreen(
                             color = if (isHidden) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else Color.Transparent,
                             shape = RoundedCornerShape(16.dp)
                         )
-                        .clickable {
-                            settingsRepository.toggleHiddenApp(app.packageName)
-                        }
+                        .clickable { toggleApp() }
                         .padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -259,18 +266,16 @@ fun HiddenAppsSetupScreen(
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = app.packageName,
+                            text = if (app.isClone) "Dual / Cloned Application" else "Installed Application",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = if (app.isClone) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1
                         )
                     }
 
                     Switch(
                         checked = isHidden,
-                        onCheckedChange = {
-                            settingsRepository.toggleHiddenApp(app.packageName)
-                        },
+                        onCheckedChange = { toggleApp() },
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = MaterialTheme.colorScheme.primary,
                             checkedTrackColor = MaterialTheme.colorScheme.primaryContainer

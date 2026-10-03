@@ -44,7 +44,7 @@ class SettingsShortcutSearchProvider : SearchProvider {
         SettingShortcutItem("setting:developer", "Developer Options", "USB debugging & advanced tools", Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS, listOf("developer", "usb debugging", "adb", "dev options")),
         SettingShortcutItem("setting:security", "Security & Lock Screen", "PIN, password & device security", Settings.ACTION_SECURITY_SETTINGS, listOf("security", "lock screen", "password", "pin", "pattern")),
         SettingShortcutItem("setting:privacy", "Privacy & Permissions", "App permissions & camera/mic access", Settings.ACTION_PRIVACY_SETTINGS, listOf("privacy", "permissions", "microphone", "camera")),
-        SettingShortcutItem("system:private_space", "Private Space", "Android Private Space • Tap to unlock or open", "android.settings.PRIVATE_SPACE_SETTINGS", listOf("private space", "privatespace")),
+        SettingShortcutItem("system:private_space", "Private Space", "Android Private Space • Tap to unlock or open", "poplauncher.action.OPEN_PRIVATE_SPACE", listOf("private space", "privatespace")),
         SettingShortcutItem("system:hidden_apps", "Hidden Apps", "Launcher Hidden Apps • Tap to view or configure", "poplauncher.action.OPEN_HIDDEN_APPS", listOf("hidden apps", "hiddenapps")),
         SettingShortcutItem("setting:date", "Date & Time", "Automatic time & timezone", Settings.ACTION_DATE_SETTINGS, listOf("date", "time", "clock", "timezone")),
         SettingShortcutItem("setting:language", "Language & Input", "System language & keyboard", Settings.ACTION_LOCALE_SETTINGS, listOf("language", "locale", "keyboard", "input")),

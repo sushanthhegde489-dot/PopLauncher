@@ -27,7 +27,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -46,6 +45,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sushanth.poplauncher.data.model.AppEntity
@@ -68,6 +68,30 @@ fun MultiAppBubbleContainer(
 
     var screenBounds by remember { mutableStateOf(floatArrayOf(0f, 0f, 0f, 0f)) }
 
+    val physicsEngine = remember(apps, bubbleConfig, bubbleSizePx) {
+        MultiBubblePhysicsEngine(apps, bubbleConfig, bubbleSizePx)
+    }
+
+    LaunchedEffect(screenBounds) {
+        if (screenBounds[1] > screenBounds[0] && screenBounds[3] > screenBounds[2]) {
+            physicsEngine.updateBounds(screenBounds[0], screenBounds[1], screenBounds[2], screenBounds[3])
+        }
+    }
+
+    // Unified 60/120fps physics simulation loop for mutual collision & wall bouncing
+    LaunchedEffect(physicsEngine) {
+        var lastFrame = 0L
+        while (true) {
+            withFrameNanos { now ->
+                if (lastFrame != 0L) {
+                    val dt = (now - lastFrame) / 1_000_000_000f
+                    physicsEngine.update(dt)
+                }
+                lastFrame = now
+            }
+        }
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -88,16 +112,15 @@ fun MultiAppBubbleContainer(
             }
     ) {
         if (screenBounds[1] > screenBounds[0]) {
-            apps.forEachIndexed { index, app ->
-                val iconDrawable = remember(app.packageName) { getAppIcon(app.packageName) }
-                SingleAppBubble(
-                    app = app,
+            physicsEngine.bodies.forEach { body ->
+                val iconDrawable = remember(body.app.packageName, body.app.userHandle) {
+                    getAppIcon(body.app.packageName)
+                }
+                PhysicalBubbleItem(
+                    body = body,
                     iconDrawable = iconDrawable,
-                    bubbleConfig = bubbleConfig,
+                    physicsEngine = physicsEngine,
                     bubbleSizeDp = bubbleSizeDp,
-                    bubbleSizePx = bubbleSizePx,
-                    screenBounds = screenBounds,
-                    seedIndex = index,
                     onAppLaunch = onAppLaunch
                 )
             }
@@ -106,57 +129,25 @@ fun MultiAppBubbleContainer(
 }
 
 @Composable
-private fun SingleAppBubble(
-    app: AppEntity,
+private fun PhysicalBubbleItem(
+    body: BubbleBody,
     iconDrawable: Drawable?,
-    bubbleConfig: BubbleConfig,
-    bubbleSizeDp: androidx.compose.ui.unit.Dp,
-    bubbleSizePx: Float,
-    screenBounds: FloatArray,
-    seedIndex: Int,
+    physicsEngine: MultiBubblePhysicsEngine,
+    bubbleSizeDp: Dp,
     onAppLaunch: (AppEntity) -> Unit
 ) {
-    val physicsEngine = remember(bubbleConfig) {
-        BubblePhysicsEngine(bubbleConfig).apply {
-            updateBounds(screenBounds[0], screenBounds[1], screenBounds[2], screenBounds[3])
-        }
-    }
-
-    var bubblePosX by remember { mutableFloatStateOf(physicsEngine.posX) }
-    var bubblePosY by remember { mutableFloatStateOf(physicsEngine.posY) }
-
-    LaunchedEffect(screenBounds) {
-        physicsEngine.updateBounds(screenBounds[0], screenBounds[1], screenBounds[2], screenBounds[3])
-    }
-
     val isMonochrome = com.sushanth.poplauncher.ui.theme.LocalIsMonochromeTheme.current
     val appBitmap = remember(iconDrawable, isMonochrome) {
         iconDrawable?.let { com.sushanth.poplauncher.util.drawableToBitmap(it, isMonochrome) }
     }
 
-    // Animation loop
-    LaunchedEffect(Unit) {
-        var lastFrame = 0L
-        while (true) {
-            withFrameNanos { now ->
-                if (lastFrame != 0L) {
-                    val dt = (now - lastFrame) / 1_000_000_000f
-                    physicsEngine.update(dt)
-                    bubblePosX = physicsEngine.posX
-                    bubblePosY = physicsEngine.posY
-                }
-                lastFrame = now
-            }
-        }
-    }
-
-    // Gentle pulse
+    // Gentle organic breathing pulse per bubble
     val pulseScale = remember { Animatable(1f) }
-    LaunchedEffect(Unit) {
+    LaunchedEffect(body.seedIndex) {
         pulseScale.animateTo(
             targetValue = 1.05f,
             animationSpec = infiniteRepeatable(
-                animation = tween(1200 + (seedIndex * 150), easing = FastOutSlowInEasing),
+                animation = tween(1200 + (body.seedIndex * 150), easing = FastOutSlowInEasing),
                 repeatMode = RepeatMode.Reverse
             )
         )
@@ -166,20 +157,21 @@ private fun SingleAppBubble(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .graphicsLayer {
-                translationX = bubblePosX
-                translationY = bubblePosY
+                // Reading body.posX & body.posY directly inside graphicsLayer avoids recomposition!
+                translationX = body.posX
+                translationY = body.posY
                 scaleX = pulseScale.value
                 scaleY = pulseScale.value
             }
             .size(bubbleSizeDp + 36.dp)
-            .pointerInput(Unit) {
+            .pointerInput(body.app.id) {
                 awaitEachGesture {
                     val down = awaitFirstDown()
                     down.consume()
-                    physicsEngine.setInteracting(true)
+                    physicsEngine.startDrag(body.app.id)
 
-                    val startX = physicsEngine.posX
-                    val startY = physicsEngine.posY
+                    val startX = body.posX
+                    val startY = body.posY
                     var cumulativeX = 0f
                     var cumulativeY = 0f
                     var totalDragDistance = 0f
@@ -201,21 +193,21 @@ private fun SingleAppBubble(
 
                             val targetX = startX + cumulativeX
                             val targetY = startY + cumulativeY
+                            physicsEngine.updateDrag(body.app.id, targetX, targetY)
 
-                            physicsEngine.updateDragPosition(targetX, targetY)
-                            bubblePosX = physicsEngine.posX
-                            bubblePosY = physicsEngine.posY
-
-                            velocityTracker.addPosition(currentPointer.uptimeMillis, down.position + androidx.compose.ui.geometry.Offset(cumulativeX, cumulativeY))
+                            velocityTracker.addPosition(
+                                currentPointer.uptimeMillis,
+                                down.position + androidx.compose.ui.geometry.Offset(cumulativeX, cumulativeY)
+                            )
                         }
                     } while (event.changes.any { it.pressed })
 
                     val elapsed = System.currentTimeMillis() - startTime
                     val vel = velocityTracker.calculateVelocity()
-                    physicsEngine.releaseDrag(vel.x, vel.y)
+                    physicsEngine.releaseDrag(body.app.id, vel.x, vel.y)
 
                     if (totalDragDistance < 20f && elapsed < 350) {
-                        onAppLaunch(app)
+                        onAppLaunch(body.app)
                     }
                 }
             }
@@ -255,7 +247,7 @@ private fun SingleAppBubble(
             if (appBitmap != null && !appBitmap.isRecycled) {
                 Image(
                     bitmap = appBitmap.asImageBitmap(),
-                    contentDescription = app.title,
+                    contentDescription = body.app.title,
                     colorFilter = if (isMonochrome) androidx.compose.ui.graphics.ColorFilter.colorMatrix(androidx.compose.ui.graphics.ColorMatrix().apply { setToSaturation(0f) }) else null,
                     modifier = Modifier
                         .size(44.dp)
@@ -274,7 +266,7 @@ private fun SingleAppBubble(
                 .padding(horizontal = 8.dp, vertical = 2.dp)
         ) {
             Text(
-                text = app.title,
+                text = body.app.title,
                 color = DarkOnBackground,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold,

@@ -305,7 +305,7 @@ fun AppGroupEditorDialog(
     var searchQuery by remember { mutableStateOf("") }
 
     val distinctApps = remember(installedApps) {
-        installedApps.distinctBy { it.packageName }.sortedBy { it.label.lowercase() }
+        installedApps.distinctBy { it.uniqueId }.sortedBy { it.label.lowercase() }
     }
 
     val filteredApps = remember(distinctApps, searchQuery) {
@@ -373,10 +373,18 @@ fun AppGroupEditorDialog(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    items(items = filteredApps, key = { it.packageName }) { app ->
-                        val isChecked = selectedPackages.contains(app.packageName)
+                    items(items = filteredApps, key = { it.uniqueId }) { app ->
+                        val isChecked = app.isContainedIn(selectedPackages)
                         val bitmap = remember(app.icon, isMonochrome) {
                             app.icon?.let { com.sushanth.poplauncher.util.drawableToBitmap(it, isMonochrome) }
+                        }
+
+                        val toggleApp = {
+                            selectedPackages = if (isChecked) {
+                                selectedPackages.filterNot { app.matchesIdentifier(it) }.toSet()
+                            } else {
+                                selectedPackages + app.uniqueId
+                            }
                         }
 
                         Row(
@@ -387,13 +395,7 @@ fun AppGroupEditorDialog(
                                     if (isChecked) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
                                     else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
                                 )
-                                .clickable {
-                                    selectedPackages = if (isChecked) {
-                                        selectedPackages - app.packageName
-                                    } else {
-                                        selectedPackages + app.packageName
-                                    }
-                                }
+                                .clickable { toggleApp() }
                                 .padding(horizontal = 10.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -414,22 +416,24 @@ fun AppGroupEditorDialog(
                                 )
                             }
                             Spacer(modifier = Modifier.width(12.dp))
-                            Text(
-                                text = app.label,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = if (isChecked) FontWeight.SemiBold else FontWeight.Normal,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.weight(1f)
-                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = app.label,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = if (isChecked) FontWeight.SemiBold else FontWeight.Normal,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                if (app.isClone) {
+                                    Text(
+                                        text = "Dual / Cloned App",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
                             Checkbox(
                                 checked = isChecked,
-                                onCheckedChange = { checked ->
-                                    selectedPackages = if (checked) {
-                                        selectedPackages + app.packageName
-                                    } else {
-                                        selectedPackages - app.packageName
-                                    }
-                                },
+                                onCheckedChange = { toggleApp() },
                                 colors = CheckboxDefaults.colors(
                                     checkedColor = MaterialTheme.colorScheme.primary
                                 )

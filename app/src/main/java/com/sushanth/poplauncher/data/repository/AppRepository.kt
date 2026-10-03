@@ -30,7 +30,20 @@ data class InstalledApp(
     val launchIntent: Intent,
     val words: List<String> = emptyList(),
     val initials: String = ""
-)
+) {
+    val uniqueId: String
+        get() = if (isClone) "$packageName#clone#${userHandle?.hashCode() ?: 1}" else packageName
+
+    fun matchesIdentifier(id: String): Boolean {
+        if (id == uniqueId) return true
+        if (!isClone && id == packageName) return true
+        return false
+    }
+
+    fun isContainedIn(idSet: Set<String>): Boolean {
+        return idSet.contains(uniqueId) || (!isClone && idSet.contains(packageName))
+    }
+}
 
 class AppRepository(private val context: Context) {
 
@@ -185,7 +198,7 @@ class AppRepository(private val context: Context) {
 
         val currentApps = _installedApps.value
         val match = currentApps.firstOrNull { app ->
-            val isFriction = frictionPackages.contains(app.packageName)
+            val isFriction = app.isContainedIn(frictionPackages)
             if (!isFriction) return@firstOrNull false
 
             val baseLabel = if (app.isClone) {
@@ -230,7 +243,7 @@ class AppRepository(private val context: Context) {
 
         for (app in currentApps) {
             // Strictly exclude any apps marked under user friction or hidden apps
-            if (frictionPackages.contains(app.packageName) || hiddenPackages.contains(app.packageName)) continue
+            if (app.isContainedIn(frictionPackages) || app.isContainedIn(hiddenPackages)) continue
 
             val target = if (caseSensitive) app.label else app.normalizedLabel
             val words = if (app.words.isNotEmpty()) app.words else target.split(NON_ALPHANUMERIC_REGEX).filter { it.isNotBlank() }
@@ -290,8 +303,11 @@ class AppRepository(private val context: Context) {
             .map { it.first.toSearchEntity(isFriction = false) }
     }
 
-    fun getAppIcon(packageName: String, isMonochrome: Boolean = false): Drawable? {
-        val baseIcon = _installedApps.value.firstOrNull { it.packageName == packageName }?.icon
+    fun getAppIcon(packageName: String, isMonochrome: Boolean = false, userHandle: UserHandle? = null): Drawable? {
+        val baseIcon = _installedApps.value.firstOrNull {
+            it.packageName == packageName && (userHandle == null || it.userHandle == userHandle)
+        }?.icon
+            ?: _installedApps.value.firstOrNull { it.packageName == packageName }?.icon
             ?: try {
                 packageManager.getApplicationIcon(packageName)
             } catch (_: Exception) {

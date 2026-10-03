@@ -2,6 +2,7 @@ package com.sushanth.poplauncher.home
 
 import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
 import androidx.core.net.toUri
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
@@ -174,12 +175,25 @@ fun HomeScreen(
         when (config.actionType) {
             GestureActionType.NONE -> {}
             GestureActionType.OPEN_APP -> {
-                val pkg = config.targetPackage
-                if (!pkg.isNullOrBlank()) {
-                    val intent = context.packageManager.getLaunchIntentForPackage(pkg)
-                    if (intent != null) {
-                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        runCatching { context.startActivity(intent) }
+                val target = config.targetPackage
+                if (!target.isNullOrBlank()) {
+                    val matchingApp = apps.firstOrNull { it.matchesIdentifier(target) }
+                    if (matchingApp != null && matchingApp.componentName != null && matchingApp.userHandle != null) {
+                        val launcherApps = context.getSystemService(android.content.pm.LauncherApps::class.java)
+                        try {
+                            launcherApps?.startMainActivity(matchingApp.componentName, matchingApp.userHandle, null, null)
+                        } catch (_: Exception) {
+                            val intent = matchingApp.launchIntent
+                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            runCatching { context.startActivity(intent) }
+                        }
+                    } else {
+                        val pkg = target.substringBefore("#")
+                        val intent = context.packageManager.getLaunchIntentForPackage(pkg)
+                        if (intent != null) {
+                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            runCatching { context.startActivity(intent) }
+                        }
                     }
                 }
             }
@@ -204,7 +218,10 @@ fun HomeScreen(
                 expandNotificationShade(context)
             }
             GestureActionType.OPEN_PRIVATE_SPACE -> {
-                com.sushanth.poplauncher.util.PrivateSpaceHelper.openPrivateSpace(context)
+                val opened = com.sushanth.poplauncher.util.PrivateSpaceHelper.openPrivateSpace(context)
+                if (!opened) {
+                    Toast.makeText(context, "Private Space is not available on this device", Toast.LENGTH_SHORT).show()
+                }
             }
             GestureActionType.OPEN_HIDDEN_APPS -> {
                 if (!settings.hasSetupHiddenApps || settings.hiddenAppPackages.isEmpty()) {
@@ -673,7 +690,7 @@ fun HomeScreen(
         if (isHiddenAppsBubblesOpen) {
             val hiddenAppsList = remember(apps, settings.hiddenAppPackages) {
                 with(appRepository) {
-                    apps.filter { settings.hiddenAppPackages.contains(it.packageName) }
+                    apps.filter { it.isContainedIn(settings.hiddenAppPackages) }
                         .map { it.toSearchEntity(isFriction = false) }
                 }
             }
@@ -704,7 +721,7 @@ fun HomeScreen(
         activeGroupBubbles?.let { group ->
             val groupAppsList = remember(apps, group.packageNames) {
                 with(appRepository) {
-                    apps.filter { group.packageNames.contains(it.packageName) }
+                    apps.filter { it.isContainedIn(group.packageNames) }
                         .map { it.toSearchEntity(isFriction = false) }
                 }
             }

@@ -253,4 +253,46 @@ class SearchFrictionLogicTest {
         assertNotNull("Active bubble must be assigned when friction exact match is found", activeBubble)
         assertEquals("Instagram", activeBubble?.label)
     }
+
+    @Test
+    fun testClonedAppSeparationAndIndependentSelection() {
+        val normalApp = InstalledApp(
+            packageName = "com.whatsapp",
+            activityName = "com.whatsapp.HomeActivity",
+            label = "WhatsApp",
+            normalizedLabel = "whatsapp",
+            icon = null,
+            launchIntent = Intent(),
+            isClone = false
+        )
+
+        val clonedApp = InstalledApp(
+            packageName = "com.whatsapp",
+            activityName = "com.whatsapp.HomeActivity",
+            label = "WhatsApp (Clone)",
+            normalizedLabel = "whatsapp (clone)",
+            icon = null,
+            launchIntent = Intent(),
+            isClone = true
+        )
+
+        // 1. Must have different uniqueIds
+        assertTrue("Normal and cloned apps must have different uniqueIds", normalApp.uniqueId != clonedApp.uniqueId)
+        assertEquals("com.whatsapp", normalApp.uniqueId)
+        assertTrue("Clone uniqueId must contain #clone#", clonedApp.uniqueId.contains("#clone#"))
+
+        // 2. Test independent selection in a set
+        val hiddenWithOnlyClone = setOf(clonedApp.uniqueId)
+        assertTrue("Clone should be contained", clonedApp.isContainedIn(hiddenWithOnlyClone))
+        assertTrue("Normal app should NOT be contained when only clone is selected", !normalApp.isContainedIn(hiddenWithOnlyClone))
+
+        val hiddenWithOnlyNormal = setOf(normalApp.uniqueId)
+        assertTrue("Normal app should be contained", normalApp.isContainedIn(hiddenWithOnlyNormal))
+        assertTrue("Clone should NOT be contained when only normal app is selected", !clonedApp.isContainedIn(hiddenWithOnlyNormal))
+
+        // 3. Backward compatibility with standard package name
+        val legacySet = setOf("com.whatsapp")
+        assertTrue("Legacy package name matches normal app", normalApp.isContainedIn(legacySet))
+        assertTrue("Legacy package name does not match clone", !clonedApp.isContainedIn(legacySet))
+    }
 }

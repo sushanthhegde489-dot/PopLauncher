@@ -73,10 +73,10 @@ fun ConversationAppsScreen(
     }
 
     val uniqueApps = remember(apps, allowedPackages) {
-        apps.distinctBy { it.packageName }
+        apps.distinctBy { it.uniqueId }
             .sortedWith(
                 compareByDescending<InstalledApp> {
-                    allowedPackages == null || allowedPackages.contains(it.packageName)
+                    allowedPackages == null || it.isContainedIn(allowedPackages)
                 }.thenBy { it.label.lowercase() }
             )
     }
@@ -86,7 +86,7 @@ fun ConversationAppsScreen(
             uniqueApps
         } else {
             val q = filterQuery.trim().lowercase()
-            uniqueApps.filter { it.label.lowercase().contains(q) || it.packageName.lowercase().contains(q) }
+            uniqueApps.filter { it.label.lowercase().contains(q) }
         }
     }
 
@@ -202,8 +202,9 @@ fun ConversationAppsScreen(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(filteredApps, key = { it.packageName }) { app ->
-                val isEnabled = allowedPackages == null || allowedPackages.contains(app.packageName)
+            items(filteredApps, key = { it.uniqueId }) { app ->
+                val isEnabled = allowedPackages == null || app.isContainedIn(allowedPackages)
+                val allUniqueIds = remember(apps) { apps.map { it.uniqueId }.toSet() }
 
                 Row(
                     modifier = Modifier
@@ -211,7 +212,7 @@ fun ConversationAppsScreen(
                         .clip(RoundedCornerShape(14.dp))
                         .background(MaterialTheme.colorScheme.surface)
                         .clickable {
-                            settingsRepository.toggleConversationApp(app.packageName, allPackages)
+                            settingsRepository.toggleConversationApp(app.uniqueId, allUniqueIds)
                         }
                         .padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -254,9 +255,9 @@ fun ConversationAppsScreen(
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = app.packageName,
+                            text = if (app.isClone) "Dual / Cloned App Shortcuts" else "Direct App Shortcuts",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = if (app.isClone) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1
                         )
                     }
@@ -266,7 +267,7 @@ fun ConversationAppsScreen(
                     Switch(
                         checked = isEnabled,
                         onCheckedChange = {
-                            settingsRepository.toggleConversationApp(app.packageName, allPackages)
+                            settingsRepository.toggleConversationApp(app.uniqueId, allUniqueIds)
                         },
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = MaterialTheme.colorScheme.onPrimary,

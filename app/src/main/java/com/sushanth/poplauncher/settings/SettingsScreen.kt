@@ -247,7 +247,7 @@ fun SettingsScreen(
                     gestureType,
                     GestureConfig(
                         actionType = GestureActionType.OPEN_APP,
-                        targetPackage = app.packageName,
+                        targetPackage = app.uniqueId,
                         targetLabel = app.label
                     )
                 )
@@ -509,9 +509,8 @@ fun SettingsScreen(
                         GestureActionType.NONE -> "None"
                         GestureActionType.OPEN_APP -> {
                             val label = config.targetLabel?.takeIf { it.isNotBlank() }
-                                ?: apps.firstOrNull { it.packageName == config.targetPackage }?.label
-                                ?: config.targetPackage?.takeIf { it.isNotBlank() }
-                                ?: "Select app"
+                                ?: apps.firstOrNull { it.matchesIdentifier(config.targetPackage ?: "") }?.label
+                                ?: "App"
                             "Open $label"
                         }
                         GestureActionType.OPEN_APP_GROUP -> {
@@ -2026,7 +2025,7 @@ private fun AppPickerDialog(
     val isMonochrome = LocalIsMonochromeTheme.current
 
     val filteredApps = remember(apps, searchQuery) {
-        val distinct = apps.distinctBy { it.packageName }.sortedBy { it.label.lowercase() }
+        val distinct = apps.distinctBy { it.uniqueId }.sortedBy { it.label.lowercase() }
         if (searchQuery.isBlank()) {
             distinct
         } else {
@@ -2088,7 +2087,7 @@ private fun AppPickerDialog(
                     ) {
                         items(
                             items = filteredApps,
-                            key = { it.packageName }
+                            key = { it.uniqueId }
                         ) { app ->
                             val bitmap = remember(app.icon, isMonochrome) {
                                 app.icon?.let { com.sushanth.poplauncher.util.drawableToBitmap(it, isMonochrome) }
@@ -2124,13 +2123,21 @@ private fun AppPickerDialog(
                                     )
                                 }
                                 Spacer(modifier = Modifier.width(14.dp))
-                                Text(
-                                    text = app.label,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    fontWeight = FontWeight.Medium,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.weight(1f)
-                                )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = app.label,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    if (app.isClone) {
+                                        Text(
+                                            text = "Dual / Cloned App",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
                             }
                         }
                     }

@@ -70,9 +70,9 @@ fun FrictionAppsScreen(
     var filterQuery by remember { mutableStateOf("") }
 
     val uniqueApps = remember(apps, frictionPackages) {
-        apps.distinctBy { it.packageName }
+        apps.distinctBy { it.uniqueId }
             .sortedWith(
-                compareByDescending<InstalledApp> { frictionPackages.contains(it.packageName) }
+                compareByDescending<InstalledApp> { it.isContainedIn(frictionPackages) }
                     .thenBy { it.label.lowercase() }
             )
     }
@@ -82,7 +82,7 @@ fun FrictionAppsScreen(
             uniqueApps
         } else {
             val q = filterQuery.trim().lowercase()
-            uniqueApps.filter { it.label.lowercase().contains(q) || it.packageName.lowercase().contains(q) }
+            uniqueApps.filter { it.label.lowercase().contains(q) }
         }
     }
 
@@ -240,13 +240,20 @@ fun FrictionAppsScreen(
             ) {
                 items(
                     items = filteredApps,
-                    key = { it.packageName }
+                    key = { it.uniqueId }
                 ) { app ->
-                    val isFriction = frictionPackages.contains(app.packageName)
+                    val isFriction = app.isContainedIn(frictionPackages)
                     FrictionAppRow(
                         app = app,
                         isFriction = isFriction,
-                        onToggle = { settingsRepository.toggleFrictionApp(app.packageName) }
+                        onToggle = {
+                            val updated = if (isFriction) {
+                                frictionPackages.filterNot { app.matchesIdentifier(it) }.toSet()
+                            } else {
+                                frictionPackages + app.uniqueId
+                            }
+                            settingsRepository.setFrictionApps(updated)
+                        }
                     )
                 }
             }
@@ -307,6 +314,15 @@ private fun FrictionAppRow(
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold
                 )
+                if (app.isClone) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Clone",
+                        color = MaterialTheme.colorScheme.primary,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
                 if (isFriction) {
                     Spacer(modifier = Modifier.width(6.dp))
                     Icon(

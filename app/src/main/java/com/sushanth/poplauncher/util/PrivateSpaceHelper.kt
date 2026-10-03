@@ -7,7 +7,6 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.UserHandle
 import android.os.UserManager
-import android.provider.Settings
 import android.util.Log
 
 object PrivateSpaceHelper {
@@ -18,6 +17,8 @@ object PrivateSpaceHelper {
      * Attempts to unlock or open Android default Private Space.
      * Uses Android 15 (API 35+) Private Profile official APIs when available,
      * or OEM Private Safe / Secure Folder / Private Space intents.
+     *
+     * IMPORTANT: Under no circumstances does this open Android System Settings.
      */
     fun openPrivateSpace(context: Context): Boolean {
         val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as? LauncherApps
@@ -31,22 +32,22 @@ object PrivateSpaceHelper {
                 if (privateProfile != null) {
                     if (userManager.isQuietModeEnabled(privateProfile)) {
                         // Request Android system unlock prompt (fingerprint / PIN / pattern)
-                        try {
-                            val method = launcherApps.javaClass.getMethod(
-                                "requestQuietModeEnabled",
-                                Boolean::class.javaPrimitiveType,
-                                UserHandle::class.java
-                            )
-                            method.invoke(launcherApps, false, privateProfile)
-                            return true
-                        } catch (_: Throwable) {
-                            val umMethod = userManager.javaClass.getMethod(
-                                "requestQuietModeEnabled",
-                                Boolean::class.javaPrimitiveType,
-                                UserHandle::class.java
-                            )
-                            umMethod.invoke(userManager, false, privateProfile)
-                            return true
+                        val prompted = requestQuietModeUnlock(launcherApps, userManager, privateProfile)
+                        if (prompted) return true
+                    } else {
+                        // Already unlocked! Launch private profile's primary activity
+                        val privateApps = try {
+                            launcherApps.getActivityList(null, privateProfile)
+                        } catch (_: Exception) {
+                            emptyList()
+                        }
+                        if (privateApps.isNotEmpty()) {
+                            try {
+                                launcherApps.startMainActivity(privateApps.first().componentName, privateProfile, null, null)
+                                return true
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Failed to start private profile main activity", e)
+                            }
                         }
                     }
                 }
@@ -55,32 +56,19 @@ object PrivateSpaceHelper {
             }
         }
 
-        // 2. Android 15 Private Space Settings Intent
-        val privateSpaceSettingsIntent = Intent("android.settings.PRIVATE_SPACE_SETTINGS").apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        if (canResolve(context, privateSpaceSettingsIntent)) {
-            try {
-                context.startActivity(privateSpaceSettingsIntent)
-                return true
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to launch PRIVATE_SPACE_SETTINGS", e)
-            }
-        }
-
-        // 3. OEM Hidden Apps, Secure Folder, and Private Safe Intents
+        // 2. OEM Hidden Apps, Secure Folder, and Private Safe Intents
         val oemIntents = listOfNotNull(
             // Samsung Secure Folder
-            context.packageManager.getLaunchIntentForPackage("com.samsung.knox.securefolder"),
-            Intent("knox.securefolder.open"),
             Intent("com.samsung.knox.securefolder.action.LAUNCH_SECURE_FOLDER"),
+            Intent("knox.securefolder.open"),
+            context.packageManager.getLaunchIntentForPackage("com.samsung.knox.securefolder"),
 
             // OnePlus, Oppo, Realme Private Safe & Hidden Apps
-            context.packageManager.getLaunchIntentForPackage("com.coloros.privatesafe"),
             Intent("com.oplus.safe.action.OPEN_PRIVATE_SAFE"),
             Intent("com.coloros.safe.action.OPEN_PRIVATE_SAFE"),
             Intent("com.coloros.encryption.ACTION_OPEN_ENCRYPTION"),
             Intent("com.oplus.encryption.ACTION_OPEN_ENCRYPTION"),
+            context.packageManager.getLaunchIntentForPackage("com.coloros.privatesafe"),
 
             // Xiaomi / MIUI / HyperOS Second Space & Hidden Apps
             Intent("miui.intent.action.VIEW_HIDDEN_APPS"),
@@ -106,23 +94,32 @@ object PrivateSpaceHelper {
             }
         }
 
-        // 4. Default Android Settings fallback (Privacy or Security & Privacy)
-        val fallbackIntents = listOf(
-            Intent(Settings.ACTION_PRIVACY_SETTINGS),
-            Intent(Settings.ACTION_SECURITY_SETTINGS),
-            Intent(Settings.ACTION_SETTINGS)
-        )
-        for (intent in fallbackIntents) {
-            if (canResolve(context, intent)) {
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                try {
-                    context.startActivity(intent)
-                    return true
-                } catch (_: Exception) {}
+        // Strict: NEVER fallback to Android System Settings!
+        return false
+    }
+
+    private fun requestQuietModeUnlock(launcherApps: LauncherApps, userManager: UserManager, profile: UserHandle): Boolean {
+        try {
+            val method = launcherApps.javaClass.getMethod(
+                "requestQuietModeEnabled",
+                Boolean::class.javaPrimitiveType,
+                UserHandle::class.java
+            )
+            method.invoke(launcherApps, false, profile)
+            return true
+        } catch (_: Throwable) {
+            return try {
+                val umMethod = userManager.javaClass.getMethod(
+                    "requestQuietModeEnabled",
+                    Boolean::class.javaPrimitiveType,
+                    UserHandle::class.java
+                )
+                umMethod.invoke(userManager, false, profile)
+                true
+            } catch (_: Throwable) {
+                false
             }
         }
-
-        return false
     }
 
     private fun findPrivateProfile(userManager: UserManager, profiles: List<UserHandle>): UserHandle? {
