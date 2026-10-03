@@ -204,50 +204,6 @@ class ConversationSearchProvider(
             } catch (_: Exception) {}
         }
 
-        // 3. Query SMS message content for text match (if READ_SMS permission is granted)
-        // BUG FIX: Only show SMS conversations if SMS provider is enabled
-        val isSmsEnabled = settingsRepository?.settings?.value?.enabledProviders?.contains(SearchType.SMS) ?: true
-        if (isSmsEnabled && androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_SMS) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            try {
-                val cursor = context.contentResolver.query(
-                    Telephony.Sms.CONTENT_URI,
-                    arrayOf(Telephony.Sms.ADDRESS, Telephony.Sms.BODY, Telephony.Sms.DATE),
-                    "${Telephony.Sms.BODY} LIKE ? OR ${Telephony.Sms.ADDRESS} LIKE ?",
-                    arrayOf("%$trimmed%", "%$trimmed%"),
-                    "${Telephony.Sms.DATE} DESC LIMIT 8"
-                )
-                cursor?.use { c ->
-                    val addrCol = c.getColumnIndex(Telephony.Sms.ADDRESS)
-                    val bodyCol = c.getColumnIndex(Telephony.Sms.BODY)
-                    val dateCol = c.getColumnIndex(Telephony.Sms.DATE)
-
-                    while (c.moveToNext()) {
-                        val address = if (addrCol >= 0) c.getString(addrCol) ?: "" else ""
-                        val body = if (bodyCol >= 0) c.getString(bodyCol) ?: "" else ""
-                        val date = if (dateCol >= 0) c.getLong(dateCol) else 0L
-
-                        if (address.isNotBlank()) {
-                            val preview = if (body.length > 55) body.take(52) + "..." else body
-                            results.add(
-                                ConversationEntity(
-                                    id = "sms_msg:${address}_$date",
-                                    title = address,
-                                    subtitle = preview,
-                                    source = "Messages",
-                                    appPackage = defaultSmsPackage,
-                                    lastMessage = body,
-                                    timestamp = date,
-                                    launchIntent = Intent(Intent.ACTION_VIEW, Uri.parse("sms:$address")).apply {
-                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    },
-                                    searchableTerms = listOf(address, body)
-                                )
-                            )
-                        }
-                    }
-                }
-            } catch (_: Exception) {}
-        }
 
         // 4. Query Call Log (if Call Log provider is enabled and READ_CALL_LOG permission is granted)
         val isCallLogEnabled = settingsRepository?.settings?.value?.enabledProviders?.contains(SearchType.CALL_LOG) ?: true

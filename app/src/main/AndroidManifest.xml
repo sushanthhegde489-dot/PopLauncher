@@ -12,13 +12,18 @@
     <!-- Internet access for web search and summaries -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Status bar control for notification shade gesture -->
+    <uses-permission android:name="android.permission.EXPAND_STATUS_BAR" />
+
+    <!-- Android 15 Private Space and hidden profile access -->
+    <uses-permission android:name="android.permission.ACCESS_HIDDEN_PROFILES" />
+
     <!-- Telephony hardware is optional so the launcher runs on non-phone devices -->
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
 
-    <!-- On-device contact, call history, and SMS search -->
+    <!-- On-device contact and call history search -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-permission android:name="android.permission.READ_CALL_LOG" />
-    <uses-permission android:name="android.permission.READ_SMS" />
 
     <!-- Notifications for launcher alerts and status -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -35,12 +40,6 @@
     <!-- Required for file/document search on Android 11+ (scoped storage workaround) -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
-
-    <!-- Expand notification shade and quick settings via gestures -->
-    <uses-permission android:name="android.permission.EXPAND_STATUS_BAR" />
-
-    <!-- Access Android 15 Private Space hidden profile (when set as default home app) -->
-    <uses-permission android:name="android.permission.ACCESS_HIDDEN_PROFILES" />
 
     <application
         android:allowBackup="true"
@@ -123,21 +122,6 @@
                 <action android:name="android.service.quicksettings.action.QS_TILE" />
             </intent-filter>
         </service>
-
-        <!-- Device Admin Receiver to allow locking the screen on gestures -->
-        <receiver
-            android:name=".receiver.PopDeviceAdminReceiver"
-            android:label="@string/app_name"
-            android:description="@string/device_admin_description"
-            android:permission="android.permission.BIND_DEVICE_ADMIN"
-            android:exported="true">
-            <meta-data
-                android:name="android.app.device_admin"
-                android:resource="@xml/device_admin" />
-            <intent-filter>
-                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
-            </intent-filter>
-        </receiver>
     </application>
 
 </manifest>

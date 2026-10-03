@@ -13,7 +13,6 @@ import com.sushanth.poplauncher.data.indexing.FileSearchProvider
 import com.sushanth.poplauncher.data.indexing.MediaSearchProvider
 import com.sushanth.poplauncher.data.indexing.SearchProvider
 import com.sushanth.poplauncher.data.indexing.SettingsShortcutSearchProvider
-import com.sushanth.poplauncher.data.indexing.SmsSearchProvider
 import com.sushanth.poplauncher.data.indexing.WebOverviewProvider
 import com.sushanth.poplauncher.data.model.*
 import kotlinx.coroutines.CoroutineScope
@@ -72,8 +71,7 @@ class SearchRepository(
         ContactSearchProvider(settingsRepository),
         FileSearchProvider(settingsRepository),
         MediaSearchProvider(settingsRepository),
-        CallLogSearchProvider(),
-        SmsSearchProvider()
+        CallLogSearchProvider()
     )
 
     private val _searchState = MutableStateFlow(SearchResultState())

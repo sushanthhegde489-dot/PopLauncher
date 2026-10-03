@@ -22,6 +22,7 @@ enum class GestureActionType(val label: String) {
     OPEN_NOTIFICATIONS("Open Notifications"),
     OPEN_PRIVATE_SPACE("Open Private Space"),
     OPEN_HIDDEN_APPS("Open Hidden Apps"),
+    @Deprecated("Removed to avoid sensitive Device Administrator permissions")
     LOCK_SCREEN("Lock Screen")
 }
 
@@ -40,10 +41,10 @@ data class GestureConfig(
             val rawType = runCatching { GestureActionType.valueOf(parts[0]) }
                 .getOrDefault(GestureActionType.NONE)
             @Suppress("DEPRECATION")
-            val type = if (rawType == GestureActionType.OPEN_NOTIFICATIONS) {
-                GestureActionType.OPEN_NOTIFICATION_SHADE
-            } else {
-                rawType
+            val type = when (rawType) {
+                GestureActionType.OPEN_NOTIFICATIONS -> GestureActionType.OPEN_NOTIFICATION_SHADE
+                GestureActionType.LOCK_SCREEN -> GestureActionType.NONE
+                else -> rawType
             }
             val pkg = parts.getOrNull(1)?.ifBlank { null }
             val label = parts.getOrNull(2)?.ifBlank { null }

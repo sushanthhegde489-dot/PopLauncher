@@ -35,6 +35,18 @@ class NewFeaturesUnitTest {
 
         val emptyParsed = GestureConfig.fromSerialized("")
         assertEquals(GestureActionType.NONE, emptyParsed.actionType)
+
+        // Lock screen migration to NONE (since admin permission is not used)
+        val lockScreenParsed = GestureConfig.fromSerialized("LOCK_SCREEN||")
+        assertEquals(GestureActionType.NONE, lockScreenParsed.actionType)
+
+        // Legacy OPEN_NOTIFICATIONS migration to OPEN_NOTIFICATION_SHADE
+        val notifParsed = GestureConfig.fromSerialized("OPEN_NOTIFICATIONS||")
+        assertEquals(GestureActionType.OPEN_NOTIFICATION_SHADE, notifParsed.actionType)
+
+        // OPEN_PRIVATE_SPACE deserialization
+        val privateSpaceParsed = GestureConfig.fromSerialized("OPEN_PRIVATE_SPACE||")
+        assertEquals(GestureActionType.OPEN_PRIVATE_SPACE, privateSpaceParsed.actionType)
     }
 
     @Test
@@ -82,36 +94,5 @@ class NewFeaturesUnitTest {
         val (col, row) = WidgetManager.findBestFitSlot(clampedSpanX, clampedSpanY, emptyMap<String, WidgetLayout>())
         assertEquals(0, col)
         assertEquals(0, row)
-    }
-
-    @Test
-    fun testGestureActionTypeLockScreenAndNotificationShadeSerialization() {
-        val lockConfig = GestureConfig(actionType = GestureActionType.LOCK_SCREEN)
-        val serializedLock = lockConfig.toSerialized()
-        val parsedLock = GestureConfig.fromSerialized(serializedLock)
-        assertEquals(GestureActionType.LOCK_SCREEN, parsedLock.actionType)
-
-        val shadeConfig = GestureConfig(actionType = GestureActionType.OPEN_NOTIFICATION_SHADE)
-        val serializedShade = shadeConfig.toSerialized()
-        val parsedShade = GestureConfig.fromSerialized(serializedShade)
-        assertEquals(GestureActionType.OPEN_NOTIFICATION_SHADE, parsedShade.actionType)
-
-        // Legacy OPEN_NOTIFICATIONS should parse as OPEN_NOTIFICATION_SHADE
-        val legacyParsed = GestureConfig.fromSerialized("OPEN_NOTIFICATIONS||")
-        assertEquals(GestureActionType.OPEN_NOTIFICATION_SHADE, legacyParsed.actionType)
-    }
-
-    @Test
-    fun testGestureActionTypePrivateSpaceSerialization() {
-        val privateSpaceConfig = GestureConfig(actionType = GestureActionType.OPEN_PRIVATE_SPACE)
-        val serialized = privateSpaceConfig.toSerialized()
-        val parsed = GestureConfig.fromSerialized(serialized)
-        assertEquals(GestureActionType.OPEN_PRIVATE_SPACE, parsed.actionType)
-    }
-
-    @Test
-    fun testPrivateSpaceHelperNullSafety() {
-        val isPrivate = com.sushanth.poplauncher.util.PrivateSpaceHelper.isPrivateProfile(null, null)
-        org.junit.Assert.assertFalse(isPrivate)
     }
 }

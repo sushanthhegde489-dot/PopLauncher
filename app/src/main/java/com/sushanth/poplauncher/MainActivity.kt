@@ -216,9 +216,6 @@ class MainActivity : ComponentActivity() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CALL_LOG) != PackageManager.PERMISSION_GRANTED) {
             neededPermissions.add(Manifest.permission.READ_CALL_LOG)
         }
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_SMS) != PackageManager.PERMISSION_GRANTED) {
-            neededPermissions.add(Manifest.permission.READ_SMS)
-        }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) != PackageManager.PERMISSION_GRANTED) {
@@ -332,11 +329,6 @@ class MainActivity : ComponentActivity() {
             SearchType.CALL_LOG -> {
                 if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CALL_LOG) != PackageManager.PERMISSION_GRANTED) {
                     missing.add(Manifest.permission.READ_CALL_LOG)
-                }
-            }
-            SearchType.SMS -> {
-                if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_SMS) != PackageManager.PERMISSION_GRANTED) {
-                    missing.add(Manifest.permission.READ_SMS)
                 }
             }
             SearchType.FILE -> {
@@ -605,7 +597,7 @@ class MainActivity : ComponentActivity() {
             if (entity.id.startsWith("system:private_space")) {
                 val opened = com.sushanth.poplauncher.util.PrivateSpaceHelper.openPrivateSpace(this)
                 if (!opened) {
-                    Toast.makeText(this, "Private Space is not set up on this device", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "Private Space is not available on this device", Toast.LENGTH_SHORT).show()
                 }
                 return
             }

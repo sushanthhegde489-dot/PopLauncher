@@ -525,7 +525,8 @@ fun SettingsScreen(
                         GestureActionType.OPEN_NOTIFICATIONS -> "Open notification shade"
                         GestureActionType.OPEN_PRIVATE_SPACE -> "Open Private Space"
                         GestureActionType.OPEN_HIDDEN_APPS -> "Open Hidden Apps"
-                        GestureActionType.LOCK_SCREEN -> "Lock screen"
+                        @Suppress("DEPRECATION")
+                        GestureActionType.LOCK_SCREEN -> "None"
                     }
 
                     PreferenceItem(
@@ -1886,7 +1887,8 @@ private fun GestureActionPickerDialog(
                 @Suppress("DEPRECATION")
                 val availableActions = GestureActionType.entries.filter {
                     it != GestureActionType.OPEN_NOTIFICATIONS &&
-                    it != GestureActionType.OPEN_SETTINGS
+                    it != GestureActionType.OPEN_SETTINGS &&
+                    it != GestureActionType.LOCK_SCREEN
                 }
                 availableActions.forEach { action ->
                     @Suppress("DEPRECATION")
@@ -1902,8 +1904,9 @@ private fun GestureActionPickerDialog(
                         GestureActionType.OPEN_NOTIFICATION_SHADE -> "Notification shade"
                         @Suppress("DEPRECATION")
                         GestureActionType.OPEN_NOTIFICATIONS -> "Notification shade"
-                        GestureActionType.OPEN_PRIVATE_SPACE -> "Private Space"
+                        GestureActionType.OPEN_PRIVATE_SPACE -> "System Private Space"
                         GestureActionType.OPEN_HIDDEN_APPS -> "Launcher Hidden Apps"
+                        @Suppress("DEPRECATION")
                         GestureActionType.LOCK_SCREEN -> "Lock screen"
                     }
                     val actionSubtitle = when (action) {
@@ -1917,6 +1920,7 @@ private fun GestureActionPickerDialog(
                         GestureActionType.OPEN_NOTIFICATIONS -> "Expand system notifications"
                         GestureActionType.OPEN_PRIVATE_SPACE -> "Unlock Android 15 Private Space / OEM Safe"
                         GestureActionType.OPEN_HIDDEN_APPS -> "Release hidden apps as interactive floating bubbles"
+                        @Suppress("DEPRECATION")
                         GestureActionType.LOCK_SCREEN -> "Instantly turn off and lock the display"
                     }
                     val icon = when (action) {
@@ -1930,6 +1934,7 @@ private fun GestureActionPickerDialog(
                         GestureActionType.OPEN_NOTIFICATIONS -> Icons.Outlined.Notifications
                         GestureActionType.OPEN_PRIVATE_SPACE -> Icons.Outlined.Security
                         GestureActionType.OPEN_HIDDEN_APPS -> Icons.Outlined.AutoAwesome
+                        @Suppress("DEPRECATION")
                         GestureActionType.LOCK_SCREEN -> Icons.Outlined.Lock
                     }
 

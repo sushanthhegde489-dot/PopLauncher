@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.input.pointer.pointerInput
@@ -110,14 +111,13 @@ fun HomeScreen(
     var isContextMenuOpen by remember { mutableStateOf(false) }
     var isHiddenAppsBubblesOpen by remember { mutableStateOf(false) }
     var activeGroupBubbles by remember { mutableStateOf<com.sushanth.poplauncher.data.model.AppGroup?>(null) }
-    var privateSpaceBubblesList by remember { mutableStateOf<List<com.sushanth.poplauncher.data.model.AppEntity>?>(null) }
 
     val pagerState = rememberPagerState(pageCount = { 2 })
     val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
     val density = LocalDensity.current
 
-    BackHandler(enabled = isSearchOpen || isContextMenuOpen || searchState.activeBubbleApp != null || isHiddenAppsBubblesOpen || activeGroupBubbles != null || privateSpaceBubblesList != null) {
+    BackHandler(enabled = isSearchOpen || isContextMenuOpen || searchState.activeBubbleApp != null || isHiddenAppsBubblesOpen || activeGroupBubbles != null) {
         if (searchState.activeBubbleApp != null) {
             searchQuery = ""
             searchRepository.clearSearch()
@@ -125,8 +125,6 @@ fun HomeScreen(
             activeGroupBubbles = null
         } else if (isHiddenAppsBubblesOpen) {
             isHiddenAppsBubblesOpen = false
-        } else if (privateSpaceBubblesList != null) {
-            privateSpaceBubblesList = null
         } else if (isContextMenuOpen) {
             isContextMenuOpen = false
         } else if (isSearchOpen) {
@@ -169,11 +167,17 @@ fun HomeScreen(
     val scope = rememberCoroutineScope()
     val viewConfiguration = LocalViewConfiguration.current
     var lastTapTime by remember { mutableLongStateOf(0L) }
+    var lastTapPos by remember { mutableStateOf(Offset.Zero) }
     var tapCount by remember { mutableIntStateOf(0) }
     var pendingTapJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var lastActionExecutionTime by remember { mutableLongStateOf(0L) }
 
     fun executeGestureAction(config: GestureConfig) {
         if (config.actionType == GestureActionType.NONE) return
+        val now = System.currentTimeMillis()
+        if (now - lastActionExecutionTime < 400L) return
+        lastActionExecutionTime = now
+
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
         when (config.actionType) {
             GestureActionType.NONE -> {}
@@ -221,43 +225,9 @@ fun HomeScreen(
                 expandNotificationShade(context)
             }
             GestureActionType.OPEN_PRIVATE_SPACE -> {
-                when (val result = com.sushanth.poplauncher.util.PrivateSpaceHelper.resolvePrivateSpace(context)) {
-                    is com.sushanth.poplauncher.util.PrivateSpaceResult.PromptedUnlock -> {
-                        // Android system unlock prompt (fingerprint/PIN) has been shown
-                    }
-                    is com.sushanth.poplauncher.util.PrivateSpaceResult.LaunchedOem -> {
-                        // OEM Private Safe or Knox Secure Folder opened
-                    }
-                    is com.sushanth.poplauncher.util.PrivateSpaceResult.Apps -> {
-                        val mappedEntities = result.activities.map { act ->
-                            val intent = Intent(Intent.ACTION_MAIN).apply {
-                                component = act.componentName
-                                addCategory(Intent.CATEGORY_LAUNCHER)
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            }
-                            com.sushanth.poplauncher.data.model.AppEntity(
-                                id = "private_space_${act.componentName.flattenToString()}",
-                                title = act.label.toString(),
-                                subtitle = "Private Space",
-                                packageName = act.applicationInfo.packageName,
-                                componentName = act.componentName,
-                                userHandle = result.profile,
-                                isClone = false,
-                                launchIntent = intent
-                            )
-                        }
-                        if (mappedEntities.isNotEmpty()) {
-                            privateSpaceBubblesList = mappedEntities
-                        } else {
-                            Toast.makeText(context, "Private Space is empty", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                    is com.sushanth.poplauncher.util.PrivateSpaceResult.EmptyUnlocked -> {
-                        Toast.makeText(context, "Private Space is unlocked (no apps installed)", Toast.LENGTH_SHORT).show()
-                    }
-                    is com.sushanth.poplauncher.util.PrivateSpaceResult.Unavailable -> {
-                        Toast.makeText(context, "Private Space is not set up on this device", Toast.LENGTH_SHORT).show()
-                    }
+                val opened = com.sushanth.poplauncher.util.PrivateSpaceHelper.openPrivateSpace(context)
+                if (!opened) {
+                    Toast.makeText(context, "Private Space is not supported or set up on this device", Toast.LENGTH_SHORT).show()
                 }
             }
             GestureActionType.OPEN_HIDDEN_APPS -> {
@@ -267,28 +237,9 @@ fun HomeScreen(
                     isHiddenAppsBubblesOpen = true
                 }
             }
+            @Suppress("DEPRECATION")
             GestureActionType.LOCK_SCREEN -> {
-                try {
-                    val dpm = context.getSystemService(android.app.admin.DevicePolicyManager::class.java)
-                    val adminComponent = android.content.ComponentName(context, com.sushanth.poplauncher.receiver.PopDeviceAdminReceiver::class.java)
-                    if (dpm != null && dpm.isAdminActive(adminComponent)) {
-                        dpm.lockNow()
-                    } else {
-                        Toast.makeText(context, "Enable Device Admin to lock screen with gestures", Toast.LENGTH_LONG).show()
-                        val intent = Intent(android.app.admin.DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
-                            putExtra(android.app.admin.DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponent)
-                            putExtra(
-                                android.app.admin.DevicePolicyManager.EXTRA_ADD_EXPLANATION,
-                                "Pop Launcher requires Device Admin permission to turn off and lock the display when you trigger screen lock gestures."
-                            )
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        }
-                        context.startActivity(intent)
-                    }
-                } catch (e: Exception) {
-                    android.util.Log.e("HomeScreen", "Failed to lock screen", e)
-                    Toast.makeText(context, "Unable to lock screen", Toast.LENGTH_SHORT).show()
-                }
+                // Device admin lock screen removed as requested
             }
         }
     }
@@ -368,20 +319,25 @@ fun HomeScreen(
                             .fillMaxSize()
                             .pointerInput(settings) {
                                 val touchSlop = viewConfiguration.touchSlop
+                                val minSwipeDistance = 85.dp.toPx()
+                                val maxTapRadius = 36.dp.toPx()
                                 awaitEachGesture {
                                     val down = awaitFirstDown(requireUnconsumed = false)
                                     val downTime = System.currentTimeMillis()
                                     val startPos = down.position
                                     var isDragDetected = false
-                                    var actionExecuted = false
+                                    var dragConsumed = false
+                                    var swipeTriggered = false
 
-                                    if (downTime - lastTapTime < 350L) {
+                                    val tapDistance = (startPos - lastTapPos).getDistance()
+                                    if (downTime - lastTapTime < 320L && tapDistance <= maxTapRadius) {
                                         tapCount++
                                         pendingTapJob?.cancel()
                                     } else {
                                         tapCount = 1
                                         pendingTapJob?.cancel()
                                     }
+                                    lastTapPos = startPos
 
                                     val longPressJob = scope.launch {
                                         delay(viewConfiguration.longPressTimeoutMillis)
@@ -395,14 +351,10 @@ fun HomeScreen(
 
                                     while (true) {
                                         val event = awaitPointerEvent()
-                                        val current = event.changes.firstOrNull { it.id == down.id }
-                                            ?: event.changes.firstOrNull()
-                                            ?: break
-
+                                        val current = event.changes.firstOrNull() ?: break
                                         if (!current.pressed) {
                                             longPressJob.cancel()
-                                            if (!isDragDetected) {
-                                                current.consume()
+                                            if (!isDragDetected && !current.isConsumed) {
                                                 lastTapTime = System.currentTimeMillis()
                                                 val currentTaps = tapCount
                                                 if (currentTaps >= 3) {
@@ -433,41 +385,36 @@ fun HomeScreen(
 
                                         val dx = current.position.x - startPos.x
                                         val dy = current.position.y - startPos.y
+                                        val absDx = kotlin.math.abs(dx)
+                                        val absDy = kotlin.math.abs(dy)
 
-                                        if (!actionExecuted) {
-                                            val absDx = kotlin.math.abs(dx)
-                                            val absDy = kotlin.math.abs(dy)
+                                        if (!isDragDetected && (absDy > touchSlop || absDx > touchSlop)) {
+                                            isDragDetected = true
+                                            longPressJob.cancel()
+                                        }
 
-                                            // Predominantly horizontal swipe: allow HorizontalPager to handle page scroll
-                                            if (absDx > touchSlop && absDx > absDy * 1.15f) {
-                                                isDragDetected = true
-                                                longPressJob.cancel()
-                                            } else if (absDy > touchSlop && absDy > absDx) {
-                                                // Predominantly vertical swipe: execute launcher gesture
-                                                isDragDetected = true
-                                                actionExecuted = true
-                                                longPressJob.cancel()
-                                                current.consume()
-
-                                                if (tapCount >= 2) {
-                                                    tapCount = 0
-                                                    lastTapTime = 0L
-                                                    if (dy < 0) {
-                                                        executeGestureAction(settings.gestureDoubleTapSwipeUp)
-                                                    } else {
-                                                        executeGestureAction(settings.gestureDoubleTapSwipeDown)
-                                                    }
+                                        if (!swipeTriggered && absDy >= minSwipeDistance && absDy > absDx * 1.8f) {
+                                            swipeTriggered = true
+                                            dragConsumed = true
+                                            current.consume()
+                                            if (tapCount >= 2) {
+                                                tapCount = 0
+                                                lastTapTime = 0L
+                                                if (dy < 0) {
+                                                    executeGestureAction(settings.gestureDoubleTapSwipeUp)
                                                 } else {
-                                                    tapCount = 0
-                                                    lastTapTime = 0L
-                                                    if (dy > 0) {
-                                                        executeGestureAction(settings.gestureSwipeDown)
-                                                    } else {
-                                                        executeGestureAction(settings.gestureSwipeUp)
-                                                    }
+                                                    executeGestureAction(settings.gestureDoubleTapSwipeDown)
+                                                }
+                                            } else {
+                                                tapCount = 0
+                                                lastTapTime = 0L
+                                                if (dy > 0) {
+                                                    executeGestureAction(settings.gestureSwipeDown)
+                                                } else {
+                                                    executeGestureAction(settings.gestureSwipeUp)
                                                 }
                                             }
-                                        } else {
+                                        } else if (dragConsumed) {
                                             current.consume()
                                         }
                                     }
@@ -810,23 +757,6 @@ fun HomeScreen(
         }
 
         // =============================================================
-        // MULTI-BUBBLE PRIVATE SPACE OVERLAY
-        // =============================================================
-        privateSpaceBubblesList?.let { privateList ->
-            com.sushanth.poplauncher.bubble.MultiAppBubbleContainer(
-                apps = privateList,
-                bubbleConfig = bubbleConfig,
-                getAppIcon = { pkg -> appRepository.getAppIcon(pkg, settings.themePalette.isMonochrome) },
-                modifier = Modifier.fillMaxSize(),
-                onDismiss = { privateSpaceBubblesList = null },
-                onAppLaunch = { launchedApp ->
-                    privateSpaceBubblesList = null
-                    onLaunchEntity(launchedApp, "")
-                }
-            )
-        }
-
-        // =============================================================
         // FIRST-RUN ONBOARDING SEARCH PREFERENCES & PERMISSIONS OVERLAY
         // =============================================================
         if (!settings.hasCompletedOnboarding) {
@@ -844,14 +774,9 @@ private fun expandNotificationShade(context: android.content.Context) {
     try {
         val statusBarService = context.getSystemService("statusbar") ?: return
         val statusBarManager = Class.forName("android.app.StatusBarManager")
-        val expandMethod = runCatching {
-            statusBarManager.getMethod("expandNotificationsPanel")
-        }.getOrNull() ?: runCatching {
-            statusBarManager.getMethod("expand")
-        }.getOrNull()
-
-        expandMethod?.invoke(statusBarService)
+        val expandMethod = statusBarManager.getMethod("expandNotificationsPanel")
+        expandMethod.invoke(statusBarService)
     } catch (e: Exception) {
-        android.util.Log.e("HomeScreen", "Failed to expand notification shade", e)
+        android.util.Log.w("HomeScreen", "Failed to expand notification panel via StatusBarManager", e)
     }
 }

@@ -5,5 +5,4 @@
     <string name="custom_widgets_manifest_url">https://sushanthhegde489-dot.github.io/poplauncherprivacypolicy/custom-widgets/manifest.json</string>
     <string name="tile_wallpaper_label">Launcher Wallpaper</string>
     <string name="tile_monochrome_label">Monochrome Icons</string>
-    <string name="device_admin_description">Enables Pop Launcher to lock the screen when you trigger screen lock gestures.</string>
 </resources>
