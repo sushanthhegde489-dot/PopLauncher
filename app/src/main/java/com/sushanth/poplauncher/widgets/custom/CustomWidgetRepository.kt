@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.core.content.edit
 import android.widget.Toast
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -17,7 +18,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
-import kotlin.math.abs
 
 class CustomWidgetRepository(private val context: Context? = null) {
     private val prefs: SharedPreferences? = context?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -42,7 +42,7 @@ class CustomWidgetRepository(private val context: Context? = null) {
         val bounded = list.take(MAX_SAVED_WIDGETS)
         val arr = JSONArray()
         bounded.forEach { arr.put(it.toJson()) }
-        prefs?.edit()?.putString(KEY_WIDGETS, arr.toString())?.apply()
+        prefs?.edit { putString(KEY_WIDGETS, arr.toString()) }
         _customWidgets.value = bounded
     }
 
@@ -175,7 +175,7 @@ class CustomWidgetRepository(private val context: Context? = null) {
             }
             ActionType.EVAL_SCRIPT -> {
                 val script = resolveParam(param)
-                val statements = script.split(";").map { it.trim() }.filter { it.isNotBlank() }
+                val statements = script.splitToSequence(";").map { it.trim() }.filter { it.isNotBlank() }
                 for (stmt in statements) {
                     if (stmt.contains("=")) {
                         val parts = stmt.split("=", limit = 2)
@@ -261,34 +261,85 @@ class CustomWidgetRepository(private val context: Context? = null) {
         }
 
         fun evaluateMathExpression(expr: String, state: Map<String, String>): String {
-            val resolved = interpolate(expr, state)
+            val resolved = interpolate(expr, state).trim()
+            if (resolved.isEmpty()) return ""
             return try {
-                // Handle basic binary operations (e.g. "a + b", "a * b").
-                // limit=2 ensures we always get exactly [lhs, rhs] even when operands
-                // contain the operator character (e.g. negative numbers after subtraction).
                 val clean = resolved.replace("\\s+".toRegex(), "")
-                when {
-                    clean.contains("+") -> {
-                        val parts = clean.split("+", limit = 2)
-                        (parts[0].toDouble() + parts[1].toDouble()).formatClean()
-                    }
-                    clean.contains("-") && !clean.startsWith("-") -> {
-                        val parts = clean.split("-", limit = 2)
-                        (parts[0].toDouble() - parts[1].toDouble()).formatClean()
-                    }
-                    clean.contains("*") -> {
-                        val parts = clean.split("*", limit = 2)
-                        (parts[0].toDouble() * parts[1].toDouble()).formatClean()
-                    }
-                    clean.contains("/") -> {
-                        val parts = clean.split("/", limit = 2)
-                        val denom = parts[1].toDouble()
-                        if (denom == 0.0) "0" else (parts[0].toDouble() / denom).formatClean()
-                    }
-                    else -> resolved
-                }
+                val result = MathParser(clean).parse()
+                result.formatClean()
             } catch (_: Exception) {
                 resolved
+            }
+        }
+
+        private class MathParser(private val str: String) {
+            private var pos = 0
+
+            private fun peek(): Char? = if (pos < str.length) str[pos] else null
+            private fun next(): Char = str[pos++]
+
+            fun parse(): Double {
+                val result = parseExpr()
+                if (pos < str.length) throw IllegalArgumentException("Unexpected char: ${str[pos]}")
+                return result
+            }
+
+            private fun parseExpr(): Double {
+                var value = parseFactor()
+                while (true) {
+                    when (peek()) {
+                        '+' -> { next(); value += parseFactor() }
+                        '-' -> { next(); value -= parseFactor() }
+                        else -> break
+                    }
+                }
+                return value
+            }
+
+            private fun parseFactor(): Double {
+                var value = parseUnary()
+                while (true) {
+                    when (peek()) {
+                        '*' -> { next(); value *= parseUnary() }
+                        '/' -> {
+                            next()
+                            val denom = parseUnary()
+                            value = if (denom == 0.0) 0.0 else value / denom
+                        }
+                        '%' -> {
+                            next()
+                            val denom = parseUnary()
+                            value = if (denom == 0.0) 0.0 else value % denom
+                        }
+                        else -> break
+                    }
+                }
+                return value
+            }
+
+            private fun parseUnary(): Double {
+                if (peek() == '+') { next(); return parseUnary() }
+                if (peek() == '-') { next(); return -parseUnary() }
+                return parsePrimary()
+            }
+
+            private fun parsePrimary(): Double {
+                if (peek() == '(') {
+                    next()
+                    val res = parseExpr()
+                    if (peek() == ')') next()
+                    return res
+                }
+                return parseNumber()
+            }
+
+            private fun parseNumber(): Double {
+                val start = pos
+                while (pos < str.length && (str[pos].isDigit() || str[pos] == '.')) {
+                    pos++
+                }
+                if (start == pos) throw IllegalArgumentException("Expected number at $pos")
+                return str.substring(start, pos).toDouble()
             }
         }
 

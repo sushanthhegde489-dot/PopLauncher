@@ -38,14 +38,14 @@ class SettingsRepository(context: Context) {
                 SearchType.PERSON,
                 SearchType.CONVERSATION,
                 SearchType.FILE,
-                SearchType.MEDIA,
-                SearchType.GOOGLE_OVERVIEW
+                SearchType.MEDIA
             )
 
         val caseSensitive = prefs.getBoolean(KEY_CASE_SENSITIVE, false)
         val customColorHex = prefs.getString(KEY_CUSTOM_COLOR_HEX, "#8F425F") ?: "#8F425F"
         val paletteId = prefs.getString(KEY_THEME_PALETTE, ThemePalette.DEFAULT_MAROON.id)
         val hasCompletedOnboarding = prefs.getBoolean(KEY_HAS_COMPLETED_ONBOARDING, false)
+        val geminiApiKey = prefs.getString(KEY_GEMINI_API_KEY, "") ?: ""
         val hasPromptedDefaultLauncher = prefs.getBoolean(KEY_HAS_PROMPTED_DEFAULT_LAUNCHER, false)
         val showWallpaper = prefs.getBoolean(KEY_SHOW_WALLPAPER, false)
         val wallpaperDim = prefs.getFloat(KEY_WALLPAPER_DIM, 0.2f)
@@ -90,11 +90,18 @@ class SettingsRepository(context: Context) {
             clock24Hour = clock24Hour,
             showDate = showDate,
             searchAnimationEnabled = searchAnimationEnabled,
+            geminiApiKey = geminiApiKey,
             gestureDoubleTap = gestureDoubleTap,
             gestureTripleTap = gestureTripleTap,
             gestureSwipeDown = gestureSwipeDown,
             gestureSwipeUp = gestureSwipeUp
         )
+    }
+
+    fun setGeminiApiKey(key: String) {
+        val trimmed = key.trim()
+        prefs.edit().putString(KEY_GEMINI_API_KEY, trimmed).apply()
+        _settings.value = _settings.value.copy(geminiApiKey = trimmed)
     }
 
     private inline fun <reified T : Enum<T>> enumOrDefault(value: String?, fallback: T): T =
@@ -325,6 +332,7 @@ class SettingsRepository(context: Context) {
         private const val KEY_THEME_PALETTE = "theme_palette"
         private const val KEY_CUSTOM_COLOR_HEX = "custom_color_hex"
         private const val KEY_HAS_COMPLETED_ONBOARDING = "has_completed_onboarding"
+        private const val KEY_GEMINI_API_KEY = "gemini_api_key"
         private const val KEY_HAS_PROMPTED_DEFAULT_LAUNCHER = "has_prompted_default_launcher"
         private const val KEY_SHOW_WALLPAPER = "show_wallpaper"
         private const val KEY_WALLPAPER_DIM = "wallpaper_dim"

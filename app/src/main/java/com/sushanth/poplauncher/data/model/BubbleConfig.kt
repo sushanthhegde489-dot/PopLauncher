@@ -44,8 +44,7 @@ data class LauncherSettings(
         SearchType.PERSON,
         SearchType.CONVERSATION,
         SearchType.FILE,
-        SearchType.MEDIA,
-        SearchType.GOOGLE_OVERVIEW
+        SearchType.MEDIA
     ),
     val caseSensitive: Boolean = false,
     val themePalette: ThemePalette = ThemePalette.DEFAULT_MAROON,
@@ -58,6 +57,7 @@ data class LauncherSettings(
     val clock24Hour: Boolean = true,
     val showDate: Boolean = true,
     val searchAnimationEnabled: Boolean = true,
+    val geminiApiKey: String = "",
     val gestureDoubleTap: GestureConfig = GestureConfig(actionType = GestureActionType.NONE),
     val gestureTripleTap: GestureConfig = GestureConfig(actionType = GestureActionType.NONE),
     val gestureSwipeDown: GestureConfig = GestureConfig(actionType = GestureActionType.OPEN_SEARCH),

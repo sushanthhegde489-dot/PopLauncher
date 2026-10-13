@@ -3,6 +3,7 @@ package com.sushanth.poplauncher.widgets
 import android.appwidget.AppWidgetManager
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.core.content.edit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,14 +17,14 @@ data class WidgetLayout(
     val spanY: Int = WidgetManager.DEFAULT_SPAN_Y
 )
 
-class WidgetManager(private val context: Context) {
+class WidgetManager(context: Context) {
 
     private val appWidgetManager = AppWidgetManager.getInstance(context)
 
     private val prefs: SharedPreferences =
         context.getSharedPreferences(PREFS_WIDGETS, Context.MODE_PRIVATE)
 
-    private val _pageWidgetIds = MutableStateFlow<List<Int>>(loadPageWidgetIds())
+    private val _pageWidgetIds = MutableStateFlow(loadPageWidgetIds())
     val pageWidgetIds: StateFlow<List<Int>> = _pageWidgetIds.asStateFlow()
 
     private val _widgetLayouts = MutableStateFlow<Map<String, WidgetLayout>>(loadWidgetLayouts())
@@ -32,7 +33,7 @@ class WidgetManager(private val context: Context) {
     private fun loadPageWidgetIds(): List<Int> {
         val raw = prefs.getString(KEY_PAGE_WIDGET_IDS, "") ?: ""
         if (raw.isEmpty()) return emptyList()
-        val loadedIds = raw.split(",").mapNotNull { it.trim().toIntOrNull() }.distinct()
+        val loadedIds = raw.split(",").asSequence().mapNotNull { it.trim().toIntOrNull() }.distinct().toList()
         
         // Clean up orphan widget IDs that no longer exist in the system to prevent crashes
         val validIds = loadedIds.filter { id ->
@@ -40,7 +41,7 @@ class WidgetManager(private val context: Context) {
         }
         
         if (validIds.size != loadedIds.size) {
-            prefs.edit().putString(KEY_PAGE_WIDGET_IDS, validIds.joinToString(",")).apply()
+            prefs.edit { putString(KEY_PAGE_WIDGET_IDS, validIds.joinToString(",")) }
         }
         
         return validIds
@@ -66,7 +67,7 @@ class WidgetManager(private val context: Context) {
                 )
             }
             if (gridVersion < CURRENT_GRID_VERSION) {
-                prefs.edit().putInt(KEY_GRID_VERSION, CURRENT_GRID_VERSION).apply()
+                prefs.edit { putInt(KEY_GRID_VERSION, CURRENT_GRID_VERSION) }
                 saveWidgetLayouts(map)
             }
             map
@@ -130,7 +131,7 @@ class WidgetManager(private val context: Context) {
     }
 
     private fun savePageWidgetIds(ids: List<Int>) {
-        prefs.edit().putString(KEY_PAGE_WIDGET_IDS, ids.joinToString(",")).apply()
+        prefs.edit { putString(KEY_PAGE_WIDGET_IDS, ids.joinToString(",")) }
         _pageWidgetIds.value = ids
     }
 
@@ -145,7 +146,7 @@ class WidgetManager(private val context: Context) {
             }
             root.put(k, obj)
         }
-        prefs.edit().putString(KEY_WIDGET_LAYOUTS, root.toString()).apply()
+        prefs.edit { putString(KEY_WIDGET_LAYOUTS, root.toString()) }
         _widgetLayouts.value = map
     }
 

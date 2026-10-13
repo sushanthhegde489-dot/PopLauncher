@@ -6,6 +6,8 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -25,6 +27,7 @@ class SearchIndexRepository(private val context: Context, private val coroutineS
     private val lock = Any()
     // In-memory cache for ultra-fast, zero-battery queries: normalized query -> list of launches
     private val indexCache = mutableMapOf<String, MutableList<IndexedLaunch>>()
+    private var persistJob: Job? = null
 
     init {
         coroutineScope.launch(Dispatchers.IO) {
@@ -101,37 +104,56 @@ class SearchIndexRepository(private val context: Context, private val coroutineS
             // Sort by count desc then lastUsed desc
             list.sortWith(compareByDescending<IndexedLaunch> { it.count }.thenByDescending { it.lastUsed })
         }
-        persistIndex()
+        schedulePersist()
+    }
+
+    private fun schedulePersist() {
+        synchronized(lock) {
+            persistJob?.cancel()
+            persistJob = coroutineScope.launch(Dispatchers.IO) {
+                delay(2000L)
+                persistIndex()
+            }
+        }
     }
 
     /**
-     * Returns an affinity score for a given entityId against the current query or prefix.
+     * Returns affinity scores for all entities against the current query or prefix.
      * Higher score means the user previously chose this result for this query.
      */
-    fun getAffinityScore(query: String, entityId: String): Int {
+    fun getAffinityScores(query: String): Map<String, Int> {
         val q = query.trim().lowercase()
-        if (q.isEmpty()) return 0
+        if (q.isEmpty()) return emptyMap()
+
+        val results = mutableMapOf<String, Int>()
 
         synchronized(lock) {
             // Exact query score
-            val exactMatch = indexCache[q]?.firstOrNull { it.entityId == entityId }
-            if (exactMatch != null) {
-                return exactMatch.count * 10
-            }
-
-            // Prefix match score
-            var prefixScore = 0
-            for ((cachedQuery, list) in indexCache) {
-                if (q.startsWith(cachedQuery) || cachedQuery.startsWith(q)) {
-                    val match = list.firstOrNull { it.entityId == entityId }
-                    if (match != null) {
-                        prefixScore = maxOf(prefixScore, match.count * 3)
-                    }
+            val exactList = indexCache[q]
+            if (exactList != null) {
+                for (item in exactList) {
+                    results[item.entityId] = item.count * 10
                 }
             }
 
-            return prefixScore
+            // Prefix match score
+            for ((cachedQuery, list) in indexCache) {
+                if (cachedQuery == q) continue // Already handled
+                
+                if (q.startsWith(cachedQuery) || cachedQuery.startsWith(q)) {
+                    for (item in list) {
+                        if (results.containsKey(item.entityId)) continue
+                        
+                        val currentScore = results[item.entityId] ?: 0
+                        val newScore = item.count * 3
+                        if (newScore > currentScore) {
+                            results[item.entityId] = newScore
+                        }
+                    }
+                }
+            }
         }
+        return results
     }
 
     companion object {

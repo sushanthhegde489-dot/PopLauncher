@@ -234,24 +234,72 @@ class SearchFrictionLogicTest {
     }
 
     @Test
-    fun testActiveBubbleAssignmentOnExactFrictionMatch() {
-        // Simulate SearchRepository logic for assigning activeBubble
+    fun testActiveBubbleAssignmentOnSubmitFrictionMatch() {
+        // Hitting enter or selecting friction app triggers friction bubble
         val query = "instagram"
         val frictionExactMatch = findFrictionExactMatch(query)
         assertNotNull("frictionExactMatch must find Instagram", frictionExactMatch)
 
-        val currentActiveBubbleApp: InstalledApp? = null
-        val preservedBubble = if (currentActiveBubbleApp != null &&
-            (currentActiveBubbleApp.label.equals(query, ignoreCase = true) ||
-             currentActiveBubbleApp.packageName.equals(query, ignoreCase = true))) {
-            currentActiveBubbleApp
-        } else {
-            null
+        val activeBubble = frictionExactMatch
+        assertNotNull("Active bubble must be assigned when submitSearch finds friction exact match", activeBubble)
+        assertEquals("Instagram", activeBubble?.label)
+    }
+
+    @Test
+    fun testFrictionAppExactMatchAppearsInSearchResultsWithContacts() {
+        val query = "whatsapp"
+        val frictionMatch = findFrictionExactMatch(query)
+        assertNotNull("Friction match must find WhatsApp on exact query", frictionMatch)
+
+        // Simulate contact named "Whatsapp xyz"
+        val contactMatch = com.sushanth.poplauncher.data.model.PersonEntity(
+            id = "person:123",
+            title = "Whatsapp xyz",
+            contactId = "123",
+            launchIntent = null
+        )
+
+        // When searching, standardApps excludes WhatsApp because it's a friction app
+        val standardApps = searchStandardApps(query)
+        assertTrue("Standard app search excludes friction apps", standardApps.isEmpty())
+
+        // Non-app results include the contact
+        val otherResults = listOf(contactMatch)
+
+        // SearchRepository combines frictionExactMatch with other results
+        val frictionSearchEntity = com.sushanth.poplauncher.data.model.AppEntity(
+            id = "app:${frictionMatch!!.packageName}",
+            title = frictionMatch.label,
+            subtitle = "Deliberate launch (Bubble)",
+            packageName = frictionMatch.packageName,
+            launchIntent = frictionMatch.launchIntent,
+            isFrictionApp = true
+        )
+        val combinedCandidates: List<com.sushanth.poplauncher.data.model.SearchEntity> = listOf(frictionSearchEntity) + otherResults
+
+        fun getPriority(entity: com.sushanth.poplauncher.data.model.SearchEntity): Int = when (entity) {
+            is com.sushanth.poplauncher.data.model.AppEntity -> 1
+            is com.sushanth.poplauncher.data.model.PersonEntity -> 2
+            else -> 6
         }
 
-        val activeBubble = frictionExactMatch ?: preservedBubble
-        assertNotNull("Active bubble must be assigned when friction exact match is found", activeBubble)
-        assertEquals("Instagram", activeBubble?.label)
+        val sortedResults = combinedCandidates.sortedBy { getPriority(it) }
+
+        // 1. Friction app must be present in results!
+        assertEquals(2, sortedResults.size)
+        assertTrue("Results must contain WhatsApp", sortedResults.any { it is com.sushanth.poplauncher.data.model.AppEntity && it.title == "WhatsApp" })
+
+        // 2. Friction app must have higher priority than contact
+        assertTrue("First result must be the WhatsApp AppEntity", sortedResults[0] is com.sushanth.poplauncher.data.model.AppEntity)
+        assertEquals("WhatsApp", sortedResults[0].title)
+        assertTrue("WhatsApp item must have isFrictionApp = true", (sortedResults[0] as com.sushanth.poplauncher.data.model.AppEntity).isFrictionApp)
+
+        // 3. Second result is the contact
+        assertEquals("Whatsapp xyz", sortedResults[1].title)
+
+        // 4. Prefix search e.g. "what" must NOT include WhatsApp
+        val prefixFriction = findFrictionExactMatch("what")
+        assertNull("Prefix query must NOT match friction app", prefixFriction)
     }
 
     @Test

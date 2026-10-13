@@ -17,3 +17,8 @@ local.properties
 *.aab
 /app/release/
 /release/
+
+# Temporary / Scratch artifacts
+app/app.zip
+payload.json
+fixes.md

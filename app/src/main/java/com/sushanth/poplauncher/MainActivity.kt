@@ -1,19 +1,17 @@
 package com.sushanth.poplauncher
 
 import android.Manifest
-import android.app.Activity
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProviderInfo
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.LauncherApps
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.Environment
 import android.provider.Settings
-import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -31,25 +29,31 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.drawable.toDrawable
 import androidx.core.net.toUri
 import androidx.lifecycle.lifecycleScope
+import com.sushanth.poplauncher.data.model.AppEntity
 import com.sushanth.poplauncher.data.model.ConversationEntity
+import com.sushanth.poplauncher.data.model.PersonEntity
 import com.sushanth.poplauncher.data.model.SearchEntity
 import com.sushanth.poplauncher.data.model.SearchType
 import com.sushanth.poplauncher.data.repository.AppRepository
 import com.sushanth.poplauncher.data.repository.SearchRepository
 import com.sushanth.poplauncher.data.repository.SettingsRepository
 import com.sushanth.poplauncher.home.HomeScreen
+import com.sushanth.poplauncher.settings.AppGroupsScreen
+import com.sushanth.poplauncher.settings.ConversationAppsScreen
 import com.sushanth.poplauncher.settings.FrictionAppsScreen
+import com.sushanth.poplauncher.settings.HiddenAppsSetupScreen
 import com.sushanth.poplauncher.settings.SettingsScreen
 import com.sushanth.poplauncher.ui.theme.PopLauncherTheme
+import com.sushanth.poplauncher.util.PrivateSpaceHelper
 import com.sushanth.poplauncher.widgets.LauncherAppWidgetHost
 import com.sushanth.poplauncher.widgets.VisualWidgetPickerScreen
 import com.sushanth.poplauncher.widgets.WidgetManager
-import kotlinx.coroutines.launch
-import com.sushanth.poplauncher.settings.ConversationAppsScreen
 import com.sushanth.poplauncher.widgets.custom.CustomWidgetCatalogRepository
 import com.sushanth.poplauncher.widgets.custom.CustomWidgetRepository
+import kotlinx.coroutines.launch
 
 enum class LauncherScreen {
     HOME,
@@ -93,7 +97,7 @@ class MainActivity : ComponentActivity() {
     private val widgetBindLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        if (result.resultCode == Activity.RESULT_OK && pendingWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
+        if (result.resultCode == RESULT_OK && pendingWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
             val widgetId = pendingWidgetId
             val info = pendingWidgetInfo
             val pinRequest = pendingPinItemRequest
@@ -139,7 +143,7 @@ class MainActivity : ComponentActivity() {
     private val widgetConfigureLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        if (result.resultCode == Activity.RESULT_OK && pendingWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
+        if (result.resultCode == RESULT_OK && pendingWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
             widgetManager.addPageWidget(pendingWidgetId)
         } else if (pendingWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
             launcherAppWidgetHost.deleteAppWidgetId(pendingWidgetId)
@@ -166,7 +170,7 @@ class MainActivity : ComponentActivity() {
         if (phoneNumber.isBlank()) return
         try {
             val dialIntent = Intent(Intent.ACTION_DIAL).apply {
-                data = Uri.parse("tel:${Uri.encode(phoneNumber)}")
+                data = "tel:${Uri.encode(phoneNumber)}".toUri()
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             startActivity(dialIntent)
@@ -174,9 +178,6 @@ class MainActivity : ComponentActivity() {
     }
 
     fun getFileAccessState(): FileAccessState {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
-            return FileAccessState.ALL_FILES
-        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val hasImg = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
             val hasVid = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED
@@ -185,17 +186,10 @@ class MainActivity : ComponentActivity() {
             return if (hasImg || hasVid || hasVisual) FileAccessState.MEDIASTORE_ONLY else FileAccessState.DENIED
         }
         val hasStorage = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
-        return if (hasStorage) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) FileAccessState.MEDIASTORE_ONLY else FileAccessState.ALL_FILES
-        } else {
-            FileAccessState.DENIED
-        }
+        return if (hasStorage) FileAccessState.ALL_FILES else FileAccessState.DENIED
     }
 
     fun getMediaAccessState(): MediaAccessState {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
-            return MediaAccessState.FULL
-        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val hasImg = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
             val hasVid = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED
@@ -212,43 +206,6 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Returns list of runtime permissions required for full Pop Launcher functionality that are currently missing.
-     */
-    fun getMissingRuntimePermissions(): List<String> {
-        val neededPermissions = mutableListOf<String>()
-
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
-            neededPermissions.add(Manifest.permission.READ_CONTACTS)
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) != PackageManager.PERMISSION_GRANTED) {
-                neededPermissions.add(Manifest.permission.READ_MEDIA_IMAGES)
-            }
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VIDEO) != PackageManager.PERMISSION_GRANTED) {
-                neededPermissions.add(Manifest.permission.READ_MEDIA_VIDEO)
-            }
-        } else {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-                neededPermissions.add(Manifest.permission.READ_EXTERNAL_STORAGE)
-            }
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) != PackageManager.PERMISSION_GRANTED) {
-                neededPermissions.add(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
-            }
-        }
-
-        return neededPermissions
-    }
-
-    /**
-     * Checks if all required runtime permissions are granted.
-     */
-    fun hasAllRuntimePermissions(): Boolean = getMissingRuntimePermissions().isEmpty()
-
-    /**
      * Request permissions for Contacts, Photos/Media, Storage, and Notifications.
      */
     fun requestSearchPermissions() {
@@ -257,26 +214,16 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * True on Android 11+ when the app can't see non-media files (PDFs, docs, archives, APKs).
-     * Media permissions alone only expose photos/videos/audio through MediaStore.
+     * Scoped MediaStore search on Android 11+ does not require MANAGE_EXTERNAL_STORAGE.
      */
-    fun needsAllFilesAccess(): Boolean =
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()
+    fun needsAllFilesAccess(): Boolean = false
 
     /**
-     * Full file-search access flow: runtime storage/media permissions first, then the
-     * system "All files access" toggle on Android 11+.
+     * Request standard runtime storage/media permissions for file search.
      */
     fun requestFileSearchAccess() {
         requestPermissionsForProviders(setOf(SearchType.FILE))
     }
-
-    fun requestContactSearchPermission() {
-        requestPermissionForProvider(SearchType.PERSON)
-    }
-
-    fun hasContactSearchPermission(): Boolean =
-        hasPermissionForProvider(SearchType.PERSON)
 
     /**
      * Requests ONLY the specific permissions required for the provided set of SearchTypes.
@@ -312,14 +259,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
             SearchType.FILE -> {
-                // Android 11+: documents are only visible with "All files access" (special
-                // app-op, requested via requestAllFilesAccess). No runtime dialog applies.
-                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R &&
-                    ContextCompat.checkSelfPermission(
-                        this,
-                        Manifest.permission.READ_EXTERNAL_STORAGE
-                    ) != PackageManager.PERMISSION_GRANTED
-                ) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) != PackageManager.PERMISSION_GRANTED) {
+                        missing.add(Manifest.permission.READ_MEDIA_IMAGES)
+                    }
+                } else if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
                     missing.add(Manifest.permission.READ_EXTERNAL_STORAGE)
                 }
             }
@@ -340,26 +284,10 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Launch system settings screen for all files management (Android 11+)
+     * Launch permission request for file search
      */
     fun requestAllFilesAccess() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            try {
-                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
-                    data = Uri.parse("package:$packageName")
-                }
-                startActivity(intent)
-            } catch (_: Exception) {
-                try {
-                    val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-                    startActivity(intent)
-                } catch (e: Exception) {
-                    Toast.makeText(this, "Unable to open Files Access settings: ${e.message}", Toast.LENGTH_SHORT).show()
-                }
-            }
-        } else {
-            requestPermissionForProvider(SearchType.FILE)
-        }
+        requestPermissionForProvider(SearchType.FILE)
     }
 
     /**
@@ -367,7 +295,7 @@ class MainActivity : ComponentActivity() {
      */
     fun hasPermissionForProvider(provider: SearchType): Boolean {
         return when (provider) {
-            SearchType.FILE -> getFileAccessState() == FileAccessState.ALL_FILES
+            SearchType.FILE -> getFileAccessState() != FileAccessState.DENIED
             SearchType.MEDIA -> getMediaAccessState() != MediaAccessState.DENIED
             else -> getMissingPermissionsForProvider(provider).isEmpty()
         }
@@ -424,7 +352,7 @@ class MainActivity : ComponentActivity() {
         handlePinItemRequest(intent)
 
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
-        window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
+        window.setBackgroundDrawable(Color.TRANSPARENT.toDrawable())
 
         setContent {
             val settings by settingsRepository.settings.collectAsState()
@@ -615,14 +543,14 @@ class MainActivity : ComponentActivity() {
         }
         try {
             if (entity.id.startsWith("system:private_space")) {
-                val opened = com.sushanth.poplauncher.util.PrivateSpaceHelper.openPrivateSpace(this)
+                val opened = PrivateSpaceHelper.openPrivateSpace(this)
                 if (!opened) {
                     Toast.makeText(this, "Private Space is not available on this device", Toast.LENGTH_SHORT).show()
                 }
                 return
             }
 
-            if (entity is com.sushanth.poplauncher.data.model.PersonEntity) {
+            if (entity is PersonEntity) {
                 val primaryPhone = entity.phoneNumbers.firstOrNull() ?: entity.subtitle
                 if (!primaryPhone.isNullOrBlank()) {
                     openDialer(primaryPhone)
@@ -630,8 +558,8 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            if (entity is com.sushanth.poplauncher.data.model.AppEntity && entity.componentName != null && entity.userHandle != null) {
-                val launcherApps = getSystemService(android.content.pm.LauncherApps::class.java)
+            if (entity is AppEntity && entity.componentName != null && entity.userHandle != null) {
+                val launcherApps = getSystemService(LauncherApps::class.java)
                 if (launcherApps != null) {
                     try {
                         launcherApps.startMainActivity(entity.componentName, entity.userHandle, null, null)
@@ -641,10 +569,10 @@ class MainActivity : ComponentActivity() {
             }
 
             val shortcutPackage = entity.launchIntent?.getStringExtra("shortcut_package")
-                ?: (entity as? com.sushanth.poplauncher.data.model.ConversationEntity)?.appPackage
+                ?: (entity as? ConversationEntity)?.appPackage
             val shortcutId = entity.launchIntent?.getStringExtra("shortcut_id")
             if (!shortcutPackage.isNullOrBlank() && !shortcutId.isNullOrBlank()) {
-                val launcherApps = getSystemService(android.content.pm.LauncherApps::class.java)
+                val launcherApps = getSystemService(LauncherApps::class.java)
                 if (launcherApps != null && launcherApps.hasShortcutHostPermission()) {
                     try {
                         launcherApps.startShortcut(shortcutPackage, shortcutId, null, null, android.os.Process.myUserHandle())
@@ -667,9 +595,9 @@ class MainActivity : ComponentActivity() {
                 null
             } else {
                 rawIntent
-            } ?: (entity as? com.sushanth.poplauncher.data.model.AppEntity)?.packageName?.let {
+            } ?: (entity as? AppEntity)?.packageName?.let {
                 packageManager.getLaunchIntentForPackage(it)
-            } ?: (entity as? com.sushanth.poplauncher.data.model.ConversationEntity)?.appPackage?.let {
+            } ?: (entity as? ConversationEntity)?.appPackage?.let {
                 packageManager.getLaunchIntentForPackage(it)
             }
 
@@ -746,7 +674,6 @@ class MainActivity : ComponentActivity() {
                 LauncherScreen.SETTINGS -> {
                     SettingsScreen(
                         settingsRepository = settingsRepository,
-                        searchRepository = searchRepository,
                         appRepository = appRepository,
                         onBackClick = { screenState = LauncherScreen.HOME },
                         onOpenFrictionApps = { screenState = LauncherScreen.FRICTION_APPS },
@@ -763,11 +690,11 @@ class MainActivity : ComponentActivity() {
                     )
                 }
                 LauncherScreen.HIDDEN_APPS_SETUP -> {
-                    com.sushanth.poplauncher.settings.HiddenAppsSetupScreen(
+                    HiddenAppsSetupScreen(
                         appRepository = appRepository,
                         settingsRepository = settingsRepository,
                         onComplete = {
-                            settingsRepository.setHasSetupHiddenApps(true)
+                            settingsRepository.setHasSetupHiddenApps(completed = true)
                             screenState = LauncherScreen.HOME
                         }
                     )
@@ -780,7 +707,7 @@ class MainActivity : ComponentActivity() {
                     )
                 }
                 LauncherScreen.APP_GROUPS -> {
-                    com.sushanth.poplauncher.settings.AppGroupsScreen(
+                    AppGroupsScreen(
                         appRepository = appRepository,
                         settingsRepository = settingsRepository,
                         onBackClick = { screenState = LauncherScreen.SETTINGS }

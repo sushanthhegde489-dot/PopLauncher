@@ -8,17 +8,15 @@ import android.net.Uri
 import android.provider.ContactsContract
 import android.provider.Telephony
 import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 import com.sushanth.poplauncher.data.model.ConversationEntity
 import com.sushanth.poplauncher.data.model.PersonEntity
 import com.sushanth.poplauncher.data.model.SearchEntity
 import com.sushanth.poplauncher.data.model.SearchType
-import com.sushanth.poplauncher.data.repository.SettingsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-class ContactSearchProvider(
-    private val settingsRepository: SettingsRepository? = null
-) : SearchProvider {
+class ContactSearchProvider : SearchProvider {
 
     override val type: SearchType = SearchType.PERSON
     override val displayName: String = "People & Contacts"
@@ -137,40 +135,52 @@ class ContactSearchProvider(
             }
 
             val defaultSmsPackage = try {
-                Telephony.Sms.getDefaultSmsPackage(context) ?: "com.google.android.apps.messaging"
+                Telephony.Sms.getDefaultSmsPackage(context)?.takeIf { PackageCheckCache.isInstalled(context, it) }
+                    ?: context.packageManager.resolveActivity(
+                        Intent(Intent.ACTION_SENDTO, "smsto:123".toUri()),
+                        PackageManager.MATCH_DEFAULT_ONLY
+                    )?.activityInfo?.packageName
             } catch (_: Exception) {
-                "com.google.android.apps.messaging"
+                null
             }
 
             val results = mutableListOf<PersonEntity>()
             for (raw in contactsMap.values.take(5)) {
                 try {
-                    val primaryNumber = raw.phoneNumbers.firstOrNull() ?: ""
+                    val rawNumber = raw.phoneNumbers.firstOrNull() ?: ""
+                    val primaryNumber = if (rawNumber.isNotBlank()) {
+                        android.telephony.PhoneNumberUtils.normalizeNumber(rawNumber)
+                    } else ""
                     val dialIntent = if (primaryNumber.isNotBlank()) {
                         Intent(Intent.ACTION_DIAL).apply {
-                            data = Uri.parse("tel:${Uri.encode(primaryNumber)}")
+                            data = "tel:${Uri.encode(primaryNumber)}".toUri()
                             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        }
+                        }.takeIf { it.resolveActivity(context.packageManager) != null }
                     } else null
 
                     val relatedConvs = mutableListOf<ConversationEntity>()
 
                     // Add native SMS conversation
                     if (primaryNumber.isNotBlank()) {
-                        relatedConvs.add(
-                            ConversationEntity(
-                                id = "sms_conv:${raw.contactId}",
-                                title = "Message ${raw.displayName}",
-                                subtitle = "Messages • $primaryNumber",
-                                source = "Messages",
-                                personAssociation = raw.displayName,
-                                appPackage = defaultSmsPackage,
-                                launchIntent = Intent(Intent.ACTION_VIEW).apply {
-                                    data = Uri.parse("sms:${Uri.encode(primaryNumber)}")
-                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                }
+                        val smsIntent = Intent(Intent.ACTION_SENDTO).apply {
+                            data = "smsto:${Uri.encode(primaryNumber)}".toUri()
+                            defaultSmsPackage?.let { setPackage(it) }
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }.takeIf { it.resolveActivity(context.packageManager) != null }
+
+                        if (smsIntent != null) {
+                            relatedConvs.add(
+                                ConversationEntity(
+                                    id = "sms_conv:${raw.contactId}",
+                                    title = "Message ${raw.displayName}",
+                                    subtitle = "Messages • $primaryNumber",
+                                    source = "Messages",
+                                    personAssociation = raw.displayName,
+                                    appPackage = defaultSmsPackage,
+                                    launchIntent = smsIntent
+                                )
                             )
-                        )
+                        }
                     }
 
                     // Query all messaging providers (WhatsApp, WhatsApp Business, Telegram, Signal, Shortcuts)
@@ -184,7 +194,7 @@ class ContactSearchProvider(
                         PersonEntity(
                             id = "person:${raw.contactId}",
                             title = raw.displayName,
-                            subtitle = if (primaryNumber.isNotBlank()) primaryNumber else null,
+                            subtitle = primaryNumber.ifBlank { null },
                             source = "Contact",
                             iconUri = raw.photoUri,
                             contactId = raw.contactId,

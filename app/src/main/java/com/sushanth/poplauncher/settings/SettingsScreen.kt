@@ -1,11 +1,11 @@
 
 package com.sushanth.poplauncher.settings
 
+import android.app.Activity
 import android.app.role.RoleManager
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
-import android.graphics.Color as AndroidColor
-import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.core.net.toUri
@@ -73,7 +73,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -93,6 +93,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.sushanth.poplauncher.MainActivity
+import com.sushanth.poplauncher.MediaAccessState
 import com.sushanth.poplauncher.R
 import com.sushanth.poplauncher.data.model.BubbleBehavior
 import com.sushanth.poplauncher.data.model.BubbleSpeed
@@ -114,13 +115,12 @@ import kotlin.math.min
 @Composable
 fun SettingsScreen(
     settingsRepository: SettingsRepository,
-    searchRepository: SearchRepository? = null,
     appRepository: AppRepository? = null,
     onBackClick: () -> Unit,
     onOpenFrictionApps: () -> Unit,
     onOpenConversationApps: () -> Unit = {},
     onOpenHiddenApps: () -> Unit = {},
-    onOpenAppGroups: () -> Unit = {}
+    onOpenAppGroups: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val settings by settingsRepository.settings.collectAsState()
@@ -130,11 +130,13 @@ fun SettingsScreen(
     var isDefaultLauncher by remember {
         mutableStateOf(isDefaultLauncher(context))
     }
-    var permissionRefreshTick by remember { mutableStateOf(0) }
+    var permissionRefreshTick by remember { mutableIntStateOf(0) }
 
-    var showCustomColor by remember { mutableStateOf(false) }
+    var showCustomColor by remember { mutableStateOf(value = false) }
     var showPrivacy by remember { mutableStateOf(false) }
     var showContactDisclosure by remember { mutableStateOf(false) }
+    var showAiDisclosure by remember { mutableStateOf(false) }
+    var showGeminiKeyDialog by remember { mutableStateOf(false) }
     var configuringGesture by remember { mutableStateOf<GestureType?>(null) }
     var choosingAppForGesture by remember { mutableStateOf<GestureType?>(null) }
     var choosingGroupForGesture by remember { mutableStateOf<GestureType?>(null) }
@@ -214,6 +216,75 @@ fun SettingsScreen(
         )
     }
 
+    if (showAiDisclosure) {
+        AlertDialog(
+            onDismissRequest = { showAiDisclosure = false },
+            title = { Text("Enable Web & AI Overviews?", fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "When enabled and local search results are empty, search queries are sent over secure HTTPS to generate web summaries via DuckDuckGo or your configured Gemini API key. No personal data, contacts, or device IDs are ever transmitted.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showAiDisclosure = false
+                        settingsRepository.toggleProvider(SearchType.GOOGLE_OVERVIEW, true)
+                    }
+                ) {
+                    Text("Enable")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAiDisclosure = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showGeminiKeyDialog) {
+        var keyInput by remember { mutableStateOf(settings.geminiApiKey) }
+        AlertDialog(
+            onDismissRequest = { showGeminiKeyDialog = false },
+            title = { Text("Gemini API Key", fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    Text(
+                        "Optionally provide your own Google Gemini API key to generate direct AI overviews. If left blank, privacy-preserving DuckDuckGo Instant Answers are used.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = keyInput,
+                        onValueChange = { keyInput = it },
+                        label = { Text("API Key") },
+                        placeholder = { Text("AIzaSy...") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        settingsRepository.setGeminiApiKey(keyInput)
+                        showGeminiKeyDialog = false
+                    }
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showGeminiKeyDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     configuringGesture?.let { gestureType ->
         val currentConfig = settings.gestures[gestureType] ?: GestureConfig()
         GestureActionPickerDialog(
@@ -228,14 +299,12 @@ fun SettingsScreen(
                 configuringGesture = null
             },
             onChooseApp = {
-                val g = gestureType
                 configuringGesture = null
-                choosingAppForGesture = g
+                choosingAppForGesture = gestureType
             },
             onChooseGroup = {
-                val g = gestureType
                 configuringGesture = null
-                choosingGroupForGesture = g
+                choosingGroupForGesture = gestureType
             }
         )
     }
@@ -765,7 +834,7 @@ fun SettingsScreen(
                 if (fileEnabled && !fileHasAccess) {
                     PreferenceItem(
                         title = "Allow file access",
-                        subtitle = "Opens system settings — turn on \"Allow access to manage all files\"",
+                        subtitle = "Grant storage permission to index local documents",
                         onClick = { mainActivity?.requestFileSearchAccess() }
                     )
                 }
@@ -773,11 +842,11 @@ fun SettingsScreen(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
                 val mediaEnabled = settings.enabledProviders.contains(SearchType.MEDIA)
-                val mediaAccess = mainActivity?.getMediaAccessState() ?: com.sushanth.poplauncher.MediaAccessState.FULL
+                val mediaAccess = mainActivity?.getMediaAccessState() ?: MediaAccessState.FULL
                 val mediaSubtitle = when (mediaAccess) {
-                    com.sushanth.poplauncher.MediaAccessState.FULL -> "Search local photos and videos."
-                    com.sushanth.poplauncher.MediaAccessState.SELECTED_ONLY -> "Limited access (selected photos only) — tap to grant full access."
-                    com.sushanth.poplauncher.MediaAccessState.DENIED -> "Media permission required — tap to grant."
+                    MediaAccessState.FULL -> "Search local photos and videos."
+                    MediaAccessState.SELECTED_ONLY -> "Limited access (selected photos only) — tap to grant full access."
+                    MediaAccessState.DENIED -> "Media permission required — tap to grant."
                 }
 
                 SwitchPreferenceItem(
@@ -789,7 +858,7 @@ fun SettingsScreen(
                             SearchType.MEDIA,
                             enabled
                         )
-                        if (enabled && mediaAccess != com.sushanth.poplauncher.MediaAccessState.FULL) {
+                        if (enabled && (mediaAccess != MediaAccessState.FULL)) {
                             // On Android 14+, selected-photo access can be upgraded by requesting
                             // the media permissions again.
                             mainActivity?.requestPermissionForProvider(SearchType.MEDIA)
@@ -805,13 +874,25 @@ fun SettingsScreen(
                     checked = settings.enabledProviders.contains(
                         SearchType.GOOGLE_OVERVIEW
                     ),
-                    onCheckedChange = {
-                        settingsRepository.toggleProvider(
-                            SearchType.GOOGLE_OVERVIEW,
-                            it
-                        )
+                    onCheckedChange = { isChecked ->
+                        if (isChecked) {
+                            showAiDisclosure = true
+                        } else {
+                            settingsRepository.toggleProvider(
+                                SearchType.GOOGLE_OVERVIEW,
+                                false
+                            )
+                        }
                     }
                 )
+
+                if (settings.enabledProviders.contains(SearchType.GOOGLE_OVERVIEW)) {
+                    PreferenceItem(
+                        title = "Gemini API Key",
+                        subtitle = if (settings.geminiApiKey.isNotBlank()) "Configured (Personal key active)" else "Not set (Using default DuckDuckGo summaries)",
+                        onClick = { showGeminiKeyDialog = true }
+                    )
+                }
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
@@ -1251,445 +1332,6 @@ private fun AccentPreview(
                 )
         )
     }
-}
-
-/* ========================================================================= */
-/* Divider                                                                    */
-/* ========================================================================= */
-
-@Composable
-private fun Divider() {
-    HorizontalDivider(
-        modifier = Modifier.padding(vertical = 2.dp),
-        color = MaterialTheme.colorScheme.outlineVariant
-    )
-}
-
-/* ========================================================================= */
-/* Actual visual color picker                                                 */
-/* ========================================================================= */
-
-@Composable
-private fun ColorPickerDialog(
-    initialColor: Color,
-    onDismiss: () -> Unit,
-    onApply: (Color) -> Unit
-) {
-    val hsv = remember(initialColor) {
-        val values = FloatArray(3)
-
-        AndroidColor.colorToHSV(
-            initialColor.toArgb(),
-            values
-        )
-
-        values
-    }
-
-    var hue by remember {
-        mutableFloatStateOf(hsv[0])
-    }
-
-    var saturation by remember {
-        mutableFloatStateOf(hsv[1])
-    }
-
-    var value by remember {
-        mutableFloatStateOf(hsv[2])
-    }
-
-    val selectedColor = Color(
-        AndroidColor.HSVToColor(
-            floatArrayOf(
-                hue,
-                saturation,
-                value
-            )
-        )
-    )
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-
-        title = {
-            Text(
-                text = "Choose accent color",
-                fontWeight = FontWeight.SemiBold
-            )
-        },
-
-        text = {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(18.dp)
-            ) {
-
-                /*
-                 * Saturation / brightness picker.
-                 */
-                SaturationValuePicker(
-                    hue = hue,
-                    saturation = saturation,
-                    value = value,
-                    onChanged = { newSaturation, newValue ->
-                        saturation = newSaturation
-                        value = newValue
-                    }
-                )
-
-                /*
-                 * Hue picker.
-                 */
-                HuePicker(
-                    hue = hue,
-                    onHueChanged = {
-                        hue = it
-                    }
-                )
-
-                /*
-                 * Current color preview.
-                 */
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-
-                    Box(
-                        modifier = Modifier
-                            .size(52.dp)
-                            .clip(CircleShape)
-                            .background(selectedColor)
-                    )
-
-                    Spacer(
-                        modifier = Modifier.width(14.dp)
-                    )
-
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        Text(
-                            text = "Selected color",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Medium
-                        )
-
-                        Text(
-                            text = colorToHex(selectedColor),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-        },
-
-        confirmButton = {
-            Button(
-                onClick = {
-                    onApply(selectedColor)
-                }
-            ) {
-                Text("Apply")
-            }
-        },
-
-        dismissButton = {
-            TextButton(
-                onClick = onDismiss
-            ) {
-                Text("Cancel")
-            }
-        }
-    )
-}
-
-/* ========================================================================= */
-/* Saturation + value picker                                                  */
-/* ========================================================================= */
-
-@Composable
-private fun SaturationValuePicker(
-    hue: Float,
-    saturation: Float,
-    value: Float,
-    onChanged: (Float, Float) -> Unit
-) {
-    val hueColor = Color(
-        AndroidColor.HSVToColor(
-            floatArrayOf(
-                hue,
-                1f,
-                1f
-            )
-        )
-    )
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(220.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .background(hueColor)
-            .pointerInput(hue) {
-
-                fun update(position: Offset) {
-                    val x = position.x
-                        .coerceIn(0f, size.width.toFloat())
-
-                    val y = position.y
-                        .coerceIn(0f, size.height.toFloat())
-
-                    val newSaturation =
-                        (x / size.width)
-                            .coerceIn(0f, 1f)
-
-                    val newValue =
-                        1f - (
-                                y / size.height
-                                ).coerceIn(0f, 1f)
-
-                    onChanged(
-                        newSaturation,
-                        newValue
-                    )
-                }
-
-                detectTapGestures { position ->
-                    update(position)
-                }
-            }
-            .pointerInput(hue) {
-                detectDragGestures(
-                    onDrag = { change, _ ->
-                        change.consume()
-
-                        val x = change.position.x
-                            .coerceIn(
-                                0f,
-                                size.width.toFloat()
-                            )
-
-                        val y = change.position.y
-                            .coerceIn(
-                                0f,
-                                size.height.toFloat()
-                            )
-
-                        onChanged(
-                            x / size.width,
-                            1f - (
-                                    y / size.height
-                                    )
-                        )
-                    }
-                )
-            }
-    ) {
-
-        /*
-         * White → transparent.
-         */
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.horizontalGradient(
-                        listOf(
-                            Color.White,
-                            Color.Transparent
-                        )
-                    )
-                )
-        )
-
-        /*
-         * Transparent → black.
-         */
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            Color.Transparent,
-                            Color.Black
-                        )
-                    )
-                )
-        )
-
-        /*
-         * Selection indicator.
-         */
-        Box(
-            modifier = Modifier
-                .size(24.dp)
-                .background(
-                    Color.Transparent,
-                    CircleShape
-                )
-                .borderCircle(
-                    color = Color.White,
-                    width = 2.dp
-                )
-                .align(
-                    Alignment(
-                        saturation,
-                        1f - value
-                    )
-                )
-        )
-    }
-}
-
-/* ========================================================================= */
-/* Hue picker                                                                 */
-/* ========================================================================= */
-
-@Composable
-private fun HuePicker(
-    hue: Float,
-    onHueChanged: (Float) -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(28.dp)
-            .clip(CircleShape)
-            .pointerInput(Unit) {
-
-                fun update(x: Float) {
-                    onHueChanged(
-                        (
-                                x / size.width
-                                ).coerceIn(0f, 1f) * 360f
-                    )
-                }
-
-                detectTapGestures { position ->
-                    update(position.x)
-                }
-            }
-            .pointerInput(Unit) {
-                detectDragGestures(
-                    onDrag = { change, _ ->
-                        change.consume()
-                        onHueChanged(
-                            (
-                                    change.position.x / size.width
-                                    ).coerceIn(0f, 1f) * 360f
-                        )
-                    }
-                )
-            }
-    ) {
-
-        Canvas(
-            modifier = Modifier.fillMaxSize()
-        ) {
-            drawRect(
-                brush = Brush.horizontalGradient(
-                    listOf(
-                        Color.Red,
-                        Color.Yellow,
-                        Color.Green,
-                        Color.Cyan,
-                        Color.Blue,
-                        Color.Magenta,
-                        Color.Red
-                    )
-                )
-            )
-        }
-
-        /*
-         * Hue selection indicator.
-         */
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(
-                    horizontal = 1.dp
-                ),
-            contentAlignment = Alignment.CenterStart
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(24.dp)
-                    .clip(CircleShape)
-                    .background(Color.White)
-                    .borderCircle(
-                        color = Color.Black.copy(alpha = 0.25f),
-                        width = 1.dp
-                    )
-                    .align(
-                        Alignment(
-                            hue / 360f,
-                            0.5f
-                        )
-                    )
-            )
-        }
-    }
-}
-
-/* ========================================================================= */
-/* Small helper for placing the picker indicator                             */
-/* ========================================================================= */
-
-private fun Modifier.borderCircle(
-    color: Color,
-    width: androidx.compose.ui.unit.Dp
-): Modifier {
-    return this.then(
-        Modifier
-            .background(
-                color = color,
-                shape = CircleShape
-            )
-            .padding(width)
-    )
-}
-
-/*
- * Alignment helper for normalized coordinates.
- */
-private fun Alignment(
-    x: Float,
-    y: Float
-): Alignment {
-    return object : Alignment {
-        override fun align(
-            size: androidx.compose.ui.unit.IntSize,
-            space: androidx.compose.ui.unit.IntSize,
-            layoutDirection: androidx.compose.ui.unit.LayoutDirection
-        ): androidx.compose.ui.unit.IntOffset {
-            return androidx.compose.ui.unit.IntOffset(
-                (
-                        (space.width - size.width) * x
-                        ).toInt(),
-                (
-                        (space.height - size.height) * y
-                        ).toInt()
-            )
-        }
-    }
-}
-
-/* ========================================================================= */
-/* Color helpers                                                              */
-/* ========================================================================= */
-
-private fun colorToHex(
-    color: Color
-): String {
-    return String.format(
-        "#%02X%02X%02X",
-        (color.red * 255).toInt(),
-        (color.green * 255).toInt(),
-        (color.blue * 255).toInt()
-    )
 }
 
 /* ========================================================================= */
@@ -2295,12 +1937,27 @@ fun isDefaultLauncher(
 }
 
 fun requestSetDefaultLauncher(context: Context) {
+    var activity: Activity? = null
+    var ctx = context
+    while (ctx is ContextWrapper) {
+        if (ctx is Activity) {
+            activity = ctx
+            break
+        }
+        ctx = ctx.baseContext
+    }
+
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         val roleManager = context.getSystemService(RoleManager::class.java)
         if (roleManager?.isRoleAvailable(RoleManager.ROLE_HOME) == true && !roleManager.isRoleHeld(RoleManager.ROLE_HOME)) {
             val intent = roleManager.createRequestRoleIntent(RoleManager.ROLE_HOME)
             try {
-                context.startActivity(intent)
+                if (activity != null) {
+                    activity.startActivityForResult(intent, 0)
+                } else {
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(intent)
+                }
                 return
             } catch (_: Exception) {}
         }

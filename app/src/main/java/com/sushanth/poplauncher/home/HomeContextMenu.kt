@@ -94,7 +94,7 @@ fun HomeContextMenu(
                 ContextMenuItem(
                     label = "Add widget",
                     icon = Icons.Outlined.Widgets,
-                    iconTint = androidx.compose.material3.MaterialTheme.colorScheme.primary,
+                    iconTint = MaterialTheme.colorScheme.primary,
                     onClick = {
                         onDismiss()
                         onAddWidget()

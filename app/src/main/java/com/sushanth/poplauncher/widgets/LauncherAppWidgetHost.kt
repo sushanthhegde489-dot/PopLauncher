@@ -22,7 +22,7 @@ class LauncherAppWidgetHost(
             super.onCreateView(context, appWidgetId, appWidget).apply {
                 setPadding(0, 0, 0, 0)
             }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             // Provide a graceful fallback to prevent third-party widget crashes from taking down the launcher
             ErrorAppWidgetHostView(context)
         }

@@ -3,7 +3,6 @@ package com.sushanth.poplauncher.home
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -59,7 +58,11 @@ fun OnboardingSearchSetupOverlay(
 
     // Installed Apps, Files & Documents, and Photos & Videos are enabled by default
     var selectedProviders by remember {
-        mutableStateOf(setOf(SearchType.APP, SearchType.FILE, SearchType.MEDIA))
+        mutableStateOf(
+            settingsRepository.settings.value.enabledProviders.ifEmpty {
+                setOf(SearchType.APP, SearchType.FILE, SearchType.MEDIA)
+            }
+        )
     }
 
     fun toggleProvider(type: SearchType, enabled: Boolean) {
@@ -207,7 +210,7 @@ fun OnboardingSearchSetupOverlay(
                         // 2. Request permissions ONLY for selected options
                         mainActivity?.requestPermissionsForProviders(selectedProviders)
                         // 3. Mark onboarding search setup completed
-                        settingsRepository.setCompletedOnboarding(true)
+                        settingsRepository.setCompletedOnboarding(completed = true)
                         onComplete()
                     },
                     modifier = Modifier.fillMaxWidth(),

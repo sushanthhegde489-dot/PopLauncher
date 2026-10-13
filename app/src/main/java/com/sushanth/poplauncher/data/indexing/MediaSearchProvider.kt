@@ -2,12 +2,13 @@ package com.sushanth.poplauncher.data.indexing
 
 import android.Manifest
 import android.util.Log
+import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
-import android.os.Environment
+import android.os.Bundle
 import android.provider.MediaStore
 import androidx.core.content.ContextCompat
 import com.sushanth.poplauncher.MediaAccessState
@@ -30,9 +31,6 @@ class MediaSearchProvider(
     override val displayName: String = "Photos & Videos"
 
     fun getAccessState(context: Context): MediaAccessState {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
-            return MediaAccessState.FULL
-        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val hasImages = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
             val hasVideo = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED
@@ -174,16 +172,17 @@ class MediaSearchProvider(
             Pair(tokenClauses.joinToString(" AND "), argsList.toTypedArray())
         }
 
-        val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC LIMIT 15"
+        val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC"
 
         try {
-            context.contentResolver.query(
-                imageUri,
-                projection,
-                selection,
-                selectionArgs,
-                sortOrder
-            )?.use { cursor ->
+            val queryArgs = Bundle().apply {
+                putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
+                putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, selectionArgs)
+                putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, sortOrder)
+                putInt(ContentResolver.QUERY_ARG_LIMIT, 15)
+            }
+            val cursor = context.contentResolver.query(imageUri, projection, queryArgs, null)
+            cursor?.use { cursor ->
                 val idIdx = cursor.getColumnIndex(MediaStore.Images.Media._ID)
                 val nameIdx = cursor.getColumnIndex(MediaStore.Images.Media.DISPLAY_NAME)
                 val mimeIdx = cursor.getColumnIndex(MediaStore.Images.Media.MIME_TYPE)
@@ -289,16 +288,27 @@ class MediaSearchProvider(
             Pair(tokenClauses.joinToString(" AND "), argsList.toTypedArray())
         }
 
-        val sortOrder = "${MediaStore.Video.Media.DATE_ADDED} DESC LIMIT 15"
+        val sortOrder = "${MediaStore.Video.Media.DATE_ADDED} DESC"
 
         try {
-            context.contentResolver.query(
-                videoUri,
-                projection,
-                selection,
-                selectionArgs,
-                sortOrder
-            )?.use { cursor ->
+            val cursor = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val queryArgs = Bundle().apply {
+                    putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
+                    putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, selectionArgs)
+                    putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, sortOrder)
+                    putInt(ContentResolver.QUERY_ARG_LIMIT, 15)
+                }
+                context.contentResolver.query(videoUri, projection, queryArgs, null)
+            } else {
+                context.contentResolver.query(
+                    videoUri,
+                    projection,
+                    selection,
+                    selectionArgs,
+                    "$sortOrder LIMIT 15"
+                )
+            }
+            cursor?.use { cursor ->
                 val idIdx = cursor.getColumnIndex(MediaStore.Video.Media._ID)
                 val nameIdx = cursor.getColumnIndex(MediaStore.Video.Media.DISPLAY_NAME)
                 val mimeIdx = cursor.getColumnIndex(MediaStore.Video.Media.MIME_TYPE)

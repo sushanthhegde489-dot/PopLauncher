@@ -1,5 +1,6 @@
 package com.sushanth.poplauncher.search
 
+import kotlin.time.Duration.Companion.milliseconds
 import androidx.compose.material3.MaterialTheme
 import android.graphics.drawable.Drawable
 import androidx.activity.compose.BackHandler
@@ -24,13 +25,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.dp
 import com.sushanth.poplauncher.data.model.SearchEntity
 import com.sushanth.poplauncher.data.repository.SearchResultState
 import kotlinx.coroutines.delay
+import kotlin.time.Duration
 
 @Composable
 fun SearchOverlay(
@@ -54,11 +55,14 @@ fun SearchOverlay(
 
     LaunchedEffect(isVisible) {
         if (isVisible) {
-            delay(100)
-            try {
-                focusRequester.requestFocus()
-                keyboardController?.show()
-            } catch (_: Exception) {}
+            for (attempt in 0 until 4) {
+                delay((if (attempt == 0) 100L else 75L).milliseconds)
+                try {
+                    focusRequester.requestFocus()
+                    keyboardController?.show()
+                    break
+                } catch (_: Exception) {}
+            }
         } else {
             try {
                 focusManager.clearFocus()

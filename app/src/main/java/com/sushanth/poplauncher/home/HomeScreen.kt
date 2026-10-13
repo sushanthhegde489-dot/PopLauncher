@@ -116,10 +116,32 @@ fun HomeScreen(
     var isPrivateSpaceBubblesOpen by remember { mutableStateOf(false) }
     var activeGroupBubbles by remember { mutableStateOf<com.sushanth.poplauncher.data.model.AppGroup?>(null) }
 
-    val pagerState = rememberPagerState(pageCount = { 2 })
+    val pagerState = rememberPagerState { 2 }
     val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
-    val density = LocalDensity.current
+    val mainActivity = context as? com.sushanth.poplauncher.MainActivity
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    var isAppResumed by remember { mutableStateOf(true) }
+    var isDefault by remember { mutableStateOf(isDefaultLauncher(context)) }
+    var fileAccessMissing by remember {
+        mutableStateOf(mainActivity?.hasPermissionForProvider(com.sushanth.poplauncher.data.model.SearchType.FILE) == false)
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                isAppResumed = true
+                isDefault = isDefaultLauncher(context)
+                fileAccessMissing = mainActivity?.hasPermissionForProvider(com.sushanth.poplauncher.data.model.SearchType.FILE) == false
+            } else if (event == androidx.lifecycle.Lifecycle.Event.ON_PAUSE || event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
+                isAppResumed = false
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     BackHandler(enabled = isSearchOpen || isContextMenuOpen || searchState.activeBubbleApp != null || isHiddenAppsBubblesOpen || activeGroupBubbles != null || isPrivateSpaceBubblesOpen) {
         if (searchState.activeBubbleApp != null) {
@@ -155,13 +177,14 @@ fun HomeScreen(
         mutableStateOf(LocalDateTime.now(ZoneId.systemDefault()).format(dateFormatter))
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(isAppResumed, timeFormatter, dateFormatter) {
+        if (!isAppResumed) return@LaunchedEffect
         while (true) {
             val now = LocalDateTime.now(ZoneId.systemDefault())
             currentTime = now.format(timeFormatter)
             currentDate = now.format(dateFormatter)
             // Align to the next minute boundary instead of ticking every second
-            val millisUntilNextMinute = 60_000L - (System.currentTimeMillis() % 60_000L)
+            val millisUntilNextMinute = (60_000L - (System.currentTimeMillis() % 60_000L)).coerceAtLeast(1000L)
             delay(millisUntilNextMinute)
         }
     }
@@ -179,14 +202,12 @@ fun HomeScreen(
     var lastActionExecutionTime by remember { mutableLongStateOf(0L) }
 
     fun executeGestureAction(config: GestureConfig) {
-        if (config.actionType == GestureActionType.NONE) return
         val now = System.currentTimeMillis()
         if (now - lastActionExecutionTime < 400L) return
         lastActionExecutionTime = now
 
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
         when (config.actionType) {
-            GestureActionType.NONE -> {}
             GestureActionType.OPEN_APP -> {
                 val target = config.targetPackage
                 if (!target.isNullOrBlank()) {
@@ -247,6 +268,7 @@ fun HomeScreen(
             GestureActionType.LOCK_SCREEN -> {
                 // Device admin lock screen removed as requested
             }
+            GestureActionType.NONE -> {}
         }
     }
 
@@ -292,28 +314,6 @@ fun HomeScreen(
         settingsRepository.getBubbleConfig()
     }
 
-    var isDefault by remember {
-        mutableStateOf(isDefaultLauncher(context))
-    }
-    val mainActivity = context as? com.sushanth.poplauncher.MainActivity
-    var fileAccessMissing by remember {
-        mutableStateOf(mainActivity?.hasPermissionForProvider(com.sushanth.poplauncher.data.model.SearchType.FILE) == false)
-    }
-    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-                isDefault = isDefaultLauncher(context)
-                fileAccessMissing = mainActivity?.hasPermissionForProvider(com.sushanth.poplauncher.data.model.SearchType.FILE) == false
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
-    }
-
-    val showOnboarding = !settings.hasCompletedOnboarding
     val showDefaultLauncherBanner = settings.hasCompletedOnboarding && !isDefault
     val showFileAccessBanner = settings.hasCompletedOnboarding &&
         settings.enabledProviders.contains(com.sushanth.poplauncher.data.model.SearchType.FILE) && fileAccessMissing
@@ -383,20 +383,36 @@ fun HomeScreen(
                                             if (!isDragDetected && !current.isConsumed) {
                                                 lastTapTime = System.currentTimeMillis()
                                                 val currentTaps = tapCount
+                                                val doubleTapTimeout = android.view.ViewConfiguration.getDoubleTapTimeout().toLong().coerceIn(180L, 240L)
+                                                val hasDoubleTap = settings.gestureDoubleTap.actionType != GestureActionType.NONE
+                                                val hasTripleTap = settings.gestureTripleTap.actionType != GestureActionType.NONE
+
                                                 if (currentTaps >= 3) {
                                                     tapCount = 0
                                                     lastTapTime = 0L
                                                     executeGestureAction(settings.gestureTripleTap)
                                                 } else if (currentTaps == 2) {
-                                                    pendingTapJob = scope.launch {
-                                                        delay(260L)
+                                                    if (hasTripleTap) {
+                                                        pendingTapJob = scope.launch {
+                                                            delay(doubleTapTimeout)
+                                                            tapCount = 0
+                                                            lastTapTime = 0L
+                                                            executeGestureAction(settings.gestureDoubleTap)
+                                                        }
+                                                    } else {
                                                         tapCount = 0
                                                         lastTapTime = 0L
                                                         executeGestureAction(settings.gestureDoubleTap)
                                                     }
                                                 } else if (currentTaps == 1) {
-                                                    pendingTapJob = scope.launch {
-                                                        delay(260L)
+                                                    if (hasDoubleTap || hasTripleTap) {
+                                                        pendingTapJob = scope.launch {
+                                                            delay(doubleTapTimeout)
+                                                            tapCount = 0
+                                                            lastTapTime = 0L
+                                                            if (isContextMenuOpen) isContextMenuOpen = false
+                                                        }
+                                                    } else {
                                                         tapCount = 0
                                                         lastTapTime = 0L
                                                         if (isContextMenuOpen) isContextMenuOpen = false
@@ -531,7 +547,7 @@ fun HomeScreen(
                                 contentAlignment = Alignment.Center,
                                 modifier = Modifier
                                     .then(
-                                        if (searchAnimation) {
+                                        if (searchAnimation && isAppResumed && !isSearchOpen) {
                                             Modifier.graphicsLayer {
                                                 translationX = searchFloatX
                                                 translationY = searchFloatY
@@ -546,7 +562,10 @@ fun HomeScreen(
                                     .clip(CircleShape)
                                     .background(MaterialTheme.colorScheme.surfaceVariant)
                                     .border(1.5.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.55f), CircleShape)
-                                    .clickable {
+                                    .clickable(
+                                        onClickLabel = "Open search",
+                                        role = androidx.compose.ui.semantics.Role.Button
+                                    ) {
                                         pendingTapJob?.cancel()
                                         tapCount = 0
                                         lastTapTime = 0L
@@ -555,7 +574,7 @@ fun HomeScreen(
                             ) {
                                 Icon(
                                     imageVector = Icons.Outlined.Search,
-                                    contentDescription = "Search",
+                                    contentDescription = "Search apps and files",
                                     tint = MaterialTheme.colorScheme.secondary,
                                     modifier = Modifier.size(30.dp)
                                 )
@@ -658,10 +677,15 @@ fun HomeScreen(
                     val first = searchState.standardResults.firstOrNull() ?: searchState.webOverview
                     if (first != null) {
                         val queryUsed = searchQuery
-                        onLaunchEntity(first, queryUsed)
-                        isSearchOpen = false
-                        searchQuery = ""
-                        searchRepository.clearSearch()
+                        if (first is com.sushanth.poplauncher.data.model.AppEntity && first.isFrictionApp) {
+                            searchRepository.triggerFrictionBubble(first)
+                            isSearchOpen = false
+                        } else {
+                            onLaunchEntity(first, queryUsed)
+                            isSearchOpen = false
+                            searchQuery = ""
+                            searchRepository.clearSearch()
+                        }
                     }
                 }
             },
@@ -689,6 +713,9 @@ fun HomeScreen(
                     if (group != null) {
                         activeGroupBubbles = group
                     }
+                } else if (entity is com.sushanth.poplauncher.data.model.AppEntity && entity.isFrictionApp) {
+                    searchRepository.triggerFrictionBubble(entity)
+                    isSearchOpen = false
                 } else {
                     onLaunchEntity(entity, queryUsed)
                     isSearchOpen = false
@@ -849,7 +876,7 @@ fun HomeScreen(
     }
 }
 
-private fun expandNotificationShade(context: android.content.Context) {
+private fun expandNotificationShade(context: Context) {
     try {
         val statusBarService = context.getSystemService("statusbar") ?: return
         val statusBarManager = Class.forName("android.app.StatusBarManager")

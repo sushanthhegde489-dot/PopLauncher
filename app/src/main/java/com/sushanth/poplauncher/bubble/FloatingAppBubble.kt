@@ -1,7 +1,6 @@
 package com.sushanth.poplauncher.bubble
 
 import android.content.Context
-import android.graphics.Bitmap
 import android.graphics.drawable.Drawable
 import android.os.Build
 import android.os.VibrationEffect
@@ -54,6 +53,11 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -84,7 +88,7 @@ fun FloatingAppBubbleContainer(
     bubbleConfig: BubbleConfig,
     modifier: Modifier = Modifier,
     onDismiss: () -> Unit = {},
-    onAppLaunch: (SearchEntity) -> Unit
+    onAppLaunch: (SearchEntity) -> Unit,
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
@@ -117,7 +121,7 @@ fun FloatingAppBubbleContainer(
     var gravityRotation by remember { mutableFloatStateOf(0f) }
 
     var popCoordinates by remember { mutableStateOf<Offset?>(null) }
-    var isCharging by remember { mutableStateOf(false) }
+    var isCharging by remember { mutableStateOf(value = false) }
     var chargeRatio by remember { mutableFloatStateOf(0f) }
     val chargeThresholdMs = bubbleConfig.popDifficulty.holdThresholdMs
 
@@ -126,7 +130,7 @@ fun FloatingAppBubbleContainer(
     // Grace period before background tap-to-dismiss is enabled to avoid stray touches during soft keyboard dismissal
     var canDismissByBackgroundTap by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        delay(300)
+        delay(300L)
         canDismissByBackgroundTap = true
     }
 
@@ -167,7 +171,7 @@ fun FloatingAppBubbleContainer(
 
     // Charge & Pop Controller
     LaunchedEffect(isCharging) {
-        if (!isCharging || currentStage != BubbleStage.FLOATING_BUBBLE) {
+        if ((!isCharging) || (currentStage != BubbleStage.FLOATING_BUBBLE)) {
             chargeRatio = 0f
             return@LaunchedEffect
         }
@@ -175,7 +179,7 @@ fun FloatingAppBubbleContainer(
         val startTime = System.currentTimeMillis()
         var lastVibe = 0L
 
-        while (isCharging && currentStage == BubbleStage.FLOATING_BUBBLE) {
+        while (isCharging && (currentStage == BubbleStage.FLOATING_BUBBLE)) {
             val elapsed = System.currentTimeMillis() - startTime
             val ratio = (elapsed.toFloat() / chargeThresholdMs).coerceIn(0f, 1f)
             chargeRatio = ratio
@@ -210,7 +214,7 @@ fun FloatingAppBubbleContainer(
                 }
                 break
             }
-            withFrameNanos {}
+            delay(16L)
         }
     }
 
@@ -280,6 +284,15 @@ fun FloatingAppBubbleContainer(
                         scaleY = scale
                     }
                     .size(bubbleSizeDp + 36.dp)
+                    .semantics {
+                        role = Role.Button
+                        contentDescription = "Floating bubble for ${app.title}. Hold to pop."
+                        onClick(label = "Pop bubble and launch ${app.title}") {
+                            triggerHeavyHaptic(vibrator)
+                            currentStage = BubbleStage.GRAVITY_FALLING_ICON
+                            true
+                        }
+                    }
                     .pointerInput(Unit) {
                         awaitEachGesture {
                             val down = awaitFirstDown()
@@ -407,11 +420,10 @@ fun FloatingAppBubbleContainer(
         if (currentStage == BubbleStage.POPPING && popCoordinates != null) {
             PopExplosion(
                 centerX = popCoordinates!!.x,
-                centerY = popCoordinates!!.y,
-                onComplete = {
-                    currentStage = BubbleStage.GRAVITY_FALLING_ICON
-                }
-            )
+                centerY = popCoordinates!!.y
+            ) {
+                currentStage = BubbleStage.GRAVITY_FALLING_ICON
+            }
         }
 
         // -------------------------------------------------------------
@@ -427,6 +439,15 @@ fun FloatingAppBubbleContainer(
                         rotationZ = gravityRotation
                     }
                     .size(iconSizeDp)
+                    .semantics {
+                        role = Role.Button
+                        contentDescription = "Bouncing icon for ${app.title}. Tap to open."
+                        onClick(label = "Launch ${app.title}") {
+                            triggerHeavyHaptic(vibrator)
+                            onAppLaunch(app)
+                            true
+                        }
+                    }
                     .pointerInput(Unit) {
                         awaitEachGesture {
                             val down = awaitFirstDown()
@@ -449,28 +470,26 @@ fun FloatingAppBubbleContainer(
                             do {
                                 val event = awaitPointerEvent()
                                 val currentPointer = event.changes.firstOrNull { it.id == down.id } ?: event.changes.firstOrNull()
-                                if (currentPointer != null) {
-                                    if (currentPointer.pressed) {
-                                        val dragAmount = currentPointer.positionChange()
-                                        currentPointer.consume()
+                                if (currentPointer != null && currentPointer.pressed) {
+                                    val dragAmount = currentPointer.positionChange()
+                                    currentPointer.consume()
 
-                                        val dx = dragAmount.x
-                                        val dy = dragAmount.y
-                                        cumulativeX += dx
-                                        cumulativeY += dy
-                                        dragTotal += hypot(dx.toDouble(), dy.toDouble()).toFloat()
+                                    val dx = dragAmount.x
+                                    val dy = dragAmount.y
+                                    cumulativeX += dx
+                                    cumulativeY += dy
+                                    dragTotal += hypot(dx.toDouble(), dy.toDouble()).toFloat()
 
-                                        val targetX = startX + cumulativeX
-                                        val targetY = startY + cumulativeY
+                                    val targetX = startX + cumulativeX
+                                    val targetY = startY + cumulativeY
 
-                                        gravityEngine.updateDrag(targetX, targetY)
-                                        gravityPosX = gravityEngine.posX
-                                        gravityPosY = gravityEngine.posY
+                                    gravityEngine.updateDrag(targetX, targetY)
+                                    gravityPosX = gravityEngine.posX
+                                    gravityPosY = gravityEngine.posY
 
-                                        velocityTracker.addPosition(currentPointer.uptimeMillis, Offset(gravityPosX, gravityPosY))
-                                    } else {
-                                        isReleased = true
-                                    }
+                                    velocityTracker.addPosition(currentPointer.uptimeMillis, Offset(gravityPosX, gravityPosY))
+                                } else if (currentPointer != null) {
+                                    isReleased = true
                                 }
                             } while (!isReleased && event.changes.any { it.pressed })
 
@@ -527,7 +546,7 @@ fun FloatingAppBubbleContainer(
 }
 
 private fun triggerLightHaptic(vibrator: Vibrator?) {
-    vibrator?.let {
+    vibrator?.takeIf { it.hasVibrator() }?.let {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             it.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK))
         } else {
@@ -538,7 +557,7 @@ private fun triggerLightHaptic(vibrator: Vibrator?) {
 }
 
 private fun triggerHeavyHaptic(vibrator: Vibrator?) {
-    vibrator?.let {
+    vibrator?.takeIf { it.hasVibrator() }?.let {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             it.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_HEAVY_CLICK))
         } else {

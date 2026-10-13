@@ -1,6 +1,7 @@
 package com.sushanth.poplauncher
 
 import com.sushanth.poplauncher.widgets.custom.CustomWidget
+import com.sushanth.poplauncher.widgets.custom.CustomWidgetRepository
 import com.sushanth.poplauncher.widgets.custom.WidgetManifest
 import org.json.JSONArray
 import org.json.JSONObject
@@ -89,5 +90,31 @@ class CustomWidgetManifestTest {
         assertNotNull(manifest)
         // optString("name") will parse 12345 to "12345", so it succeeds, verifying no crash occurs
         assertEquals(1, manifest!!.widgets.size)
+    }
+
+    @Test
+    fun testEvaluateMathExpressionWithNegativeAndComplexOperands() {
+        val state = emptyMap<String, String>()
+        assertEquals("2", CustomWidgetRepository.evaluateMathExpression("5 + -3", state))
+        assertEquals("-7", CustomWidgetRepository.evaluateMathExpression("-5 - 2", state))
+        assertEquals("13", CustomWidgetRepository.evaluateMathExpression("10 - -3", state))
+        assertEquals("-20", CustomWidgetRepository.evaluateMathExpression("-5 * 4", state))
+        assertEquals("20", CustomWidgetRepository.evaluateMathExpression("(2 + 3) * 4", state))
+        assertEquals("5", CustomWidgetRepository.evaluateMathExpression("10 / 2", state))
+        assertEquals("hello", CustomWidgetRepository.evaluateMathExpression("hello", state))
+    }
+
+    @Test
+    fun publishedCustomWidgetsManifestParsesSuccessfully() {
+        val file = java.io.File("C:/Users/Sushanth/AndroidStudioProjects/Custom widget + privacy policy/custom-widgets/manifest.json")
+        if (file.exists()) {
+            val content = file.readText()
+            val root = JSONObject(content)
+            val manifest = WidgetManifest.fromJson(root, appVersionCode = 2)
+            assertNotNull(manifest)
+            assertEquals(5, manifest!!.widgets.size)
+            val ids = manifest.widgets.map { it.id }.toSet()
+            assertEquals(setOf("hydration_tracker", "todo_applet", "calc_applet", "api_weather_applet", "notes_applet"), ids)
+        }
     }
 }

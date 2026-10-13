@@ -2,7 +2,6 @@ package com.sushanth.poplauncher
 
 import com.sushanth.poplauncher.bubble.MultiBubblePhysicsEngine
 import com.sushanth.poplauncher.data.model.AppEntity
-import com.sushanth.poplauncher.data.model.BubbleBehavior
 import com.sushanth.poplauncher.data.model.BubbleConfig
 import com.sushanth.poplauncher.data.model.BubbleSpeed
 import org.junit.Assert.assertEquals
@@ -113,5 +112,56 @@ class MultiBubblePhysicsEngineTest {
         val dy = b2.posY - b1.posY
         val dist = sqrt(dx * dx + dy * dy)
         assertTrue("b2 should have been displaced so that distance >= collisionDiameter. dist=$dist", dist >= engine.collisionDiameter - 1f)
+    }
+
+    @Test
+    fun testZeroDistanceCollisionDoesNotProduceNaN() {
+        val apps = listOf(
+            createApp("app1", "App One"),
+            createApp("app2", "App Two")
+        )
+        val engine = MultiBubblePhysicsEngine(apps, BubbleConfig(), bubbleSizePx = 100f)
+        engine.updateBounds(0f, 800f, 0f, 800f)
+
+        val b1 = engine.bodies[0]
+        val b2 = engine.bodies[1]
+
+        // Exactly identical positions (dist = 0f)
+        b1.posX = 300f
+        b1.posY = 300f
+        b1.velX = 0f
+        b1.velY = 0f
+
+        b2.posX = 300f
+        b2.posY = 300f
+        b2.velX = 0f
+        b2.velY = 0f
+
+        engine.resolvePairCollisions(updateVelocities = true)
+
+        org.junit.Assert.assertFalse("b1.posX must not be NaN", b1.posX.isNaN())
+        org.junit.Assert.assertFalse("b1.posY must not be NaN", b1.posY.isNaN())
+        org.junit.Assert.assertFalse("b2.posX must not be NaN", b2.posX.isNaN())
+        org.junit.Assert.assertFalse("b2.posY must not be NaN", b2.posY.isNaN())
+        org.junit.Assert.assertFalse("b1.velX must not be NaN", b1.velX.isNaN())
+        org.junit.Assert.assertFalse("b2.velX must not be NaN", b2.velX.isNaN())
+    }
+
+    @Test
+    fun testIsSettledWhenVelocitiesAreLow() {
+        val apps = listOf(
+            createApp("app1", "App One")
+        )
+        val engine = MultiBubblePhysicsEngine(apps, BubbleConfig(), bubbleSizePx = 100f)
+        engine.updateBounds(0f, 800f, 0f, 800f)
+
+        val b1 = engine.bodies[0]
+        b1.velX = 0.01f
+        b1.velY = 0.01f
+
+        assertTrue("Engine should be settled when velocities are near zero", engine.isSettled)
+
+        b1.velX = 50f
+        org.junit.Assert.assertFalse("Engine should not be settled when velocity is high", engine.isSettled)
     }
 }

@@ -373,7 +373,15 @@ private fun EmptyPickerState(modifier: Modifier = Modifier, title: String, body:
 @Composable
 private fun WidgetPreviewCard(widget: VisualWidgetInfo, onClick: () -> Unit) {
     Column(
-        modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(16.dp)).clickable(onClick = onClick).padding(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(16.dp))
+            .clickable(
+                role = androidx.compose.ui.semantics.Role.Button,
+                onClickLabel = "Add ${widget.widgetLabel} from ${widget.appLabel} to home screen",
+                onClick = onClick
+            )
+            .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Box(Modifier.fillMaxWidth().aspectRatio(1.35f).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
@@ -408,7 +416,7 @@ private fun loadAllVisualWidgets(context: Context, isMonochrome: Boolean = false
             val preview = runCatching { info.loadPreviewImage(context, 0)?.let { drawableToBitmap(it, isMonochrome) } ?: drawableToBitmap(info.loadIcon(context, 0), isMonochrome) }.getOrNull()
             val spanX = ((info.minWidth + 30) / 70).coerceIn(1, 4)
             val spanY = ((info.minHeight + 30) / 70).coerceIn(1, 4)
-            VisualWidgetInfo(info, appLabel, widgetLabel, appIcon, preview, "${spanX}×${spanY}", categorizeWidget(info, appLabel, widgetLabel))
+            VisualWidgetInfo(info, appLabel, widgetLabel, appIcon, preview, "${spanX}×$spanY", categorizeWidget(info, appLabel, widgetLabel))
         }.getOrNull()
     }.sortedWith(compareBy({ it.category.ordinal }, { it.appLabel.lowercase() }, { it.widgetLabel.lowercase() }))
 }

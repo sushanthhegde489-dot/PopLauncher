@@ -223,11 +223,24 @@ fun FrictionAppsScreen(
                     .padding(32.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = if (filterQuery.isNotBlank()) "No applications found matching \"$filterQuery\"" else "No applications installed",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 14.sp
-                )
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = if (filterQuery.isNotBlank()) "No applications found matching \"$filterQuery\"" else "No applications installed",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 14.sp
+                    )
+                    if (filterQuery.isNotBlank()) {
+                        androidx.compose.material3.OutlinedButton(
+                            onClick = { filterQuery = "" },
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("Clear search", fontSize = 12.sp)
+                        }
+                    }
+                }
             }
         } else {
             LazyColumn(
@@ -277,10 +290,10 @@ private fun FrictionAppRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(if (isFriction) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            .background(if (isFriction) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant)
             .border(
                 1.dp,
-                if (isFriction) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                if (isFriction) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
                 RoundedCornerShape(16.dp)
             )
             .clickable(onClick = onToggle)

@@ -38,6 +38,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import kotlinx.coroutines.delay
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.util.VelocityTracker
@@ -52,6 +53,7 @@ import com.sushanth.poplauncher.data.model.AppEntity
 import com.sushanth.poplauncher.data.model.BubbleConfig
 import com.sushanth.poplauncher.ui.theme.DarkOnBackground
 import kotlin.math.hypot
+import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
 fun MultiAppBubbleContainer(
@@ -60,7 +62,7 @@ fun MultiAppBubbleContainer(
     getAppIcon: (String) -> Drawable?,
     modifier: Modifier = Modifier,
     onDismiss: () -> Unit = {},
-    onAppLaunch: (AppEntity) -> Unit
+    onAppLaunch: (AppEntity) -> Unit,
 ) {
     val density = LocalDensity.current
     val bubbleSizeDp = 76.dp
@@ -73,7 +75,7 @@ fun MultiAppBubbleContainer(
     }
 
     LaunchedEffect(screenBounds) {
-        if (screenBounds[1] > screenBounds[0] && screenBounds[3] > screenBounds[2]) {
+        if ((screenBounds[1] > screenBounds[0]) && (screenBounds[3] > screenBounds[2])) {
             physicsEngine.updateBounds(screenBounds[0], screenBounds[1], screenBounds[2], screenBounds[3])
         }
     }
@@ -82,6 +84,11 @@ fun MultiAppBubbleContainer(
     LaunchedEffect(physicsEngine) {
         var lastFrame = 0L
         while (true) {
+            if (physicsEngine.isSettled) {
+                lastFrame = 0L
+                delay(60.milliseconds)
+                continue
+            }
             withFrameNanos { now ->
                 if (lastFrame != 0L) {
                     val dt = (now - lastFrame) / 1_000_000_000f
@@ -134,7 +141,7 @@ private fun PhysicalBubbleItem(
     iconDrawable: Drawable?,
     physicsEngine: MultiBubblePhysicsEngine,
     bubbleSizeDp: Dp,
-    onAppLaunch: (AppEntity) -> Unit
+    onAppLaunch: (AppEntity) -> Unit,
 ) {
     val isMonochrome = com.sushanth.poplauncher.ui.theme.LocalIsMonochromeTheme.current
     val appBitmap = remember(iconDrawable, isMonochrome) {
@@ -164,6 +171,12 @@ private fun PhysicalBubbleItem(
                 scaleY = pulseScale.value
             }
             .size(bubbleSizeDp + 36.dp)
+            .clickable(
+                onClickLabel = "Launch ${body.app.title}",
+                role = androidx.compose.ui.semantics.Role.Button
+            ) {
+                onAppLaunch(body.app)
+            }
             .pointerInput(body.app.id) {
                 awaitEachGesture {
                     val down = awaitFirstDown()

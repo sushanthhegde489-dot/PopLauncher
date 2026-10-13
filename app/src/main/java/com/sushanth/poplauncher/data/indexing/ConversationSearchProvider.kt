@@ -1,13 +1,16 @@
 package com.sushanth.poplauncher.data.indexing
 
+import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
 import android.content.pm.LauncherApps
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.os.Process
 import android.provider.ContactsContract
 import android.provider.Telephony
+import androidx.core.net.toUri
 import com.sushanth.poplauncher.data.model.ConversationEntity
 import com.sushanth.poplauncher.data.model.SearchEntity
 import com.sushanth.poplauncher.data.model.SearchType
@@ -118,13 +121,15 @@ class ConversationSearchProvider(
                 val selection = "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ? OR ${ContactsContract.CommonDataKinds.Phone.NUMBER} LIKE ?"
                 val selectionArgs = arrayOf("%$queryLower%", "%$queryLower%")
 
-                context.contentResolver.query(
-                    ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
-                    projection,
-                    selection,
-                    selectionArgs,
-                    "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} ASC LIMIT 6"
-                )?.use { cursor ->
+                val uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI
+                val args = Bundle().apply {
+                    putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
+                    putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, selectionArgs)
+                    putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} ASC")
+                    putInt(ContentResolver.QUERY_ARG_LIMIT, 6)
+                }
+                val cursor = context.contentResolver.query(uri, projection, args, null)
+                cursor?.use { cursor ->
                     val nameCol = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
                     val numCol = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
 
@@ -140,7 +145,7 @@ class ConversationSearchProvider(
                         val number = if (numCol >= 0) cursor.getString(numCol)?.trim() ?: "" else ""
                         if (name.isBlank() && number.isBlank()) continue
 
-                        val cleanedNum = number.replace("[^0-9+]".toRegex(), "")
+                        val cleanedNum = android.telephony.PhoneNumberUtils.normalizeNumber(number)
                         val displayName = name.ifBlank { number }
 
                         // Direct WhatsApp chat (only if WhatsApp is installed and allowed)
@@ -153,7 +158,7 @@ class ConversationSearchProvider(
                                     source = "WhatsApp",
                                     personAssociation = displayName,
                                     appPackage = "com.whatsapp",
-                                    launchIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://api.whatsapp.com/send?phone=$cleanedNum")).apply {
+                                    launchIntent = Intent(Intent.ACTION_VIEW, "https://api.whatsapp.com/send?phone=$cleanedNum".toUri()).apply {
                                         setPackage("com.whatsapp")
                                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                     },
@@ -172,7 +177,7 @@ class ConversationSearchProvider(
                                     source = "Telegram",
                                     personAssociation = displayName,
                                     appPackage = "org.telegram.messenger",
-                                    launchIntent = Intent(Intent.ACTION_VIEW, Uri.parse("tg://msg?to=$cleanedNum")).apply {
+                                    launchIntent = Intent(Intent.ACTION_VIEW, "tg://msg?to=$cleanedNum".toUri()).apply {
                                         setPackage("org.telegram.messenger")
                                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                     },
@@ -182,7 +187,7 @@ class ConversationSearchProvider(
                         }
 
                         // Direct SMS message (only if SMS app is installed and allowed)
-                        if (isSmsInstalled && isSmsAllowed && number.isNotBlank()) {
+                        if (isSmsInstalled && isSmsAllowed && cleanedNum.isNotBlank()) {
                             results.add(
                                 ConversationEntity(
                                     id = "sms:$cleanedNum",
@@ -191,7 +196,8 @@ class ConversationSearchProvider(
                                     source = "Messages",
                                     personAssociation = displayName,
                                     appPackage = defaultSmsPackage,
-                                    launchIntent = Intent(Intent.ACTION_VIEW, Uri.parse("sms:$number")).apply {
+                                    launchIntent = Intent(Intent.ACTION_SENDTO, "smsto:${Uri.encode(cleanedNum)}".toUri()).apply {
+                                        setPackage(defaultSmsPackage)
                                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                     },
                                     searchableTerms = listOf(displayName, "Messages", number)

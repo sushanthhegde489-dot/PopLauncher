@@ -37,7 +37,8 @@ object IconUtils {
         return mutated
     }
 
-    private val bitmapCache = LruCache<String, Bitmap>(20)
+    private val cacheSize: Int = ((Runtime.getRuntime().maxMemory() / 1024 / 1024).toInt() * 2).coerceIn(100, 300)
+    private val bitmapCache = LruCache<String, Bitmap>(cacheSize)
 
     /**
      * Converts a Drawable to a Bitmap, with optional monochrome conversion.

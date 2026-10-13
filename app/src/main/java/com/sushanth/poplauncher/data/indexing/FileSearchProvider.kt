@@ -2,12 +2,14 @@ package com.sushanth.poplauncher.data.indexing
 
 import android.Manifest
 import android.util.Log
+import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
 import androidx.core.content.ContextCompat
@@ -15,15 +17,12 @@ import androidx.core.content.FileProvider
 import com.sushanth.poplauncher.data.model.FileEntity
 import com.sushanth.poplauncher.data.model.SearchEntity
 import com.sushanth.poplauncher.data.model.SearchType
-import com.sushanth.poplauncher.data.repository.SettingsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
 
-class FileSearchProvider(
-    private val settingsRepository: SettingsRepository? = null
-) : SearchProvider {
+class FileSearchProvider : SearchProvider {
 
     override val type: SearchType = SearchType.FILE
     override val displayName: String = "Files"
@@ -34,8 +33,10 @@ class FileSearchProvider(
      * so the UI shows a grant prompt instead of silently returning zero results.
      */
     override suspend fun isAvailable(context: Context): Boolean {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            return Environment.isExternalStorageManager()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            return ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED
         }
         return ContextCompat.checkSelfPermission(
             context,
@@ -85,9 +86,6 @@ class FileSearchProvider(
             val trimmed = query.trim()
             if (trimmed.isEmpty() || !isAvailable(context)) return@withContext emptyList()
 
-            val isFileEnabled = settingsRepository?.settings?.value?.enabledProviders?.contains(SearchType.FILE) ?: true
-            if (!isFileEnabled) return@withContext emptyList()
-
             val results = mutableListOf<SearchEntity>()
             val uri: Uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL)
@@ -117,16 +115,17 @@ class FileSearchProvider(
 
             val lowerQuery = trimmed.lowercase()
             val (selection, selectionArgs) = buildFileSelection(trimmed, lowerQuery)
-            val sortOrder = "${MediaStore.Files.FileColumns.DATE_MODIFIED} DESC LIMIT 25"
+            val sortOrder = "${MediaStore.Files.FileColumns.DATE_MODIFIED} DESC"
 
             try {
-                context.contentResolver.query(
-                    uri,
-                    projection,
-                    selection,
-                    selectionArgs,
-                    sortOrder
-                )?.use { cursor ->
+                val queryArgs = Bundle().apply {
+                    putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
+                    putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, selectionArgs)
+                    putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, sortOrder)
+                    putInt(ContentResolver.QUERY_ARG_LIMIT, 25)
+                }
+                val cursor = context.contentResolver.query(uri, projection, queryArgs, null)
+                cursor?.use { cursor ->
                     val idIdx = cursor.getColumnIndex(MediaStore.Files.FileColumns._ID)
                     val nameIdx = cursor.getColumnIndex(MediaStore.Files.FileColumns.DISPLAY_NAME)
                     val titleIdx = cursor.getColumnIndex(MediaStore.Files.FileColumns.TITLE)
@@ -181,10 +180,8 @@ class FileSearchProvider(
                 Log.e("PopLauncher", "FileSearchProvider exception: ${e.message}", e)
             }
 
-            // If full storage access is granted (Environment.isExternalStorageManager() or legacy read storage),
-            // complement MediaStore index with fast on-disk scan in documents/downloads.
             val canScanDisk = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                Environment.isExternalStorageManager()
+                false
             } else {
                 ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
             }
@@ -207,11 +204,14 @@ class FileSearchProvider(
         query: String,
         context: Context
     ): List<FileEntity> {
+        val trimmed = query.trim()
+        if (trimmed.length < 3) return emptyList()
+
         val diskResults = mutableListOf<FileEntity>()
         val root = Environment.getExternalStorageDirectory() ?: return emptyList()
         if (!root.canRead()) return emptyList()
 
-        val tokens = query.lowercase().split("\\s+".toRegex()).filter { it.isNotBlank() }
+        val tokens = trimmed.lowercase().split("\\s+".toRegex()).filter { it.isNotBlank() }
         if (tokens.isEmpty()) return emptyList()
 
         // Common folders first so the budget is spent where files usually live,
@@ -219,7 +219,7 @@ class FileSearchProvider(
         val priority = listOf(
             Environment.DIRECTORY_DOWNLOADS,
             Environment.DIRECTORY_DOCUMENTS
-        ).map { File(root, it) }.filter { it.isDirectory }
+        ).asSequence().map { File(root, it) }.filter { it.isDirectory }.toList()
         val others = (root.listFiles() ?: emptyArray())
             .filter { it.isDirectory && it !in priority && it.name != "Android" && !it.name.startsWith(".") }
         val rootFiles = (root.listFiles() ?: emptyArray()).filter { it.isFile }
@@ -306,7 +306,7 @@ class FileSearchProvider(
 
     private companion object {
         const val MAX_DISK_RESULTS = 20
-        const val MAX_SCANNED_ENTRIES = 6000
+        const val MAX_SCANNED_ENTRIES = 1000
     }
 
     internal fun buildFileSelection(trimmed: String, lowerQuery: String): Pair<String?, Array<String>?> {

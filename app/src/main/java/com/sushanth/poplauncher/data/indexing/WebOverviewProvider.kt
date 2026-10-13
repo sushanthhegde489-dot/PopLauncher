@@ -1,6 +1,7 @@
 package com.sushanth.poplauncher.data.indexing
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -12,52 +13,52 @@ import java.net.URLEncoder
 
 object WebOverviewProvider {
 
-    suspend fun fetchOverview(query: String): String? = withContext(Dispatchers.IO) {
+    /**
+     * Fetches an overview for the query.
+     * If an optional Gemini API key is configured by the user, calls the official Gemini API.
+     * Otherwise, queries the privacy-preserving DuckDuckGo Instant Answer JSON API.
+     */
+    suspend fun fetchOverview(query: String, geminiApiKey: String? = null): String? = coroutineScope {
         val trimmed = query.trim()
-        if (trimmed.isEmpty()) return@withContext null
+        if (trimmed.isEmpty()) return@coroutineScope null
 
-        // 1. Primary: Fetch fast AI summary from Pollinations AI text endpoint
-        val aiResult = fetchFromPollinationsAi(trimmed)
-        if (!aiResult.isNullOrBlank()) {
-            return@withContext cleanText(aiResult)
+        // 1. If user supplied a Gemini API key in settings, prioritize direct Gemini generation
+        if (!geminiApiKey.isNullOrBlank()) {
+            val geminiResult = withContext(Dispatchers.IO) { fetchFromGemini(trimmed, geminiApiKey) }
+            if (!geminiResult.isNullOrBlank()) {
+                return@coroutineScope cleanText(geminiResult)
+            }
         }
 
-        // 2. Fallback: DuckDuckGo Instant Answer
-        val ddgResult = fetchFromDuckDuckGo(trimmed)
+        // 2. Default: Privacy-preserving DuckDuckGo Instant Answer API (structured JSON, no tracking)
+        val ddgResult = withContext(Dispatchers.IO) { fetchFromDuckDuckGo(trimmed) }
         if (!ddgResult.isNullOrBlank()) {
-            return@withContext cleanText(ddgResult)
+            return@coroutineScope cleanText(ddgResult)
         }
 
         null
     }
 
-    private fun fetchFromPollinationsAi(query: String): String? {
+    private fun fetchFromGemini(query: String, apiKey: String): String? {
         var conn: HttpURLConnection? = null
         return try {
-            val url = URI("https://text.pollinations.ai/").toURL()
+            val url = URI("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$apiKey").toURL()
             conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
                 connectTimeout = 4000
                 readTimeout = 4000
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json")
-                setRequestProperty("User-Agent", "PopLauncher/1.0 (Android AI Search)")
+                setRequestProperty("User-Agent", "PopLauncher/1.0")
             }
 
-            val systemMessage = JSONObject().apply {
-                put("role", "system")
-                put("content", "You are a concise AI search assistant. Provide a direct, factual, 2-3 sentence overview answering the user query. Do not use markdown (no asterisks, bolding, hashtags, bullet points, or HTML). Plain text only.")
-            }
-            val userMessage = JSONObject().apply {
-                put("role", "user")
-                put("content", query)
+            val contentObj = JSONObject().apply {
+                put("parts", JSONArray().put(JSONObject().apply {
+                    put("text", "Provide a direct, factual 2-sentence summary answering: $query. Plain text only, no markdown, asterisks, or bullet points.")
+                }))
             }
             val payload = JSONObject().apply {
-                put("messages", JSONArray().apply {
-                    put(systemMessage)
-                    put(userMessage)
-                })
-                put("model", "openai")
+                put("contents", JSONArray().put(contentObj))
             }
 
             OutputStreamWriter(conn.outputStream, "UTF-8").use { writer ->
@@ -67,8 +68,12 @@ object WebOverviewProvider {
 
             if (conn.responseCode == 200) {
                 val response = conn.inputStream.bufferedReader().use { it.readTextLimited(MAX_RESPONSE_CHARS) }
-                if (response.isNotBlank()) {
-                    return response
+                val root = JSONObject(response)
+                val candidates = root.optJSONArray("candidates")
+                val parts = candidates?.optJSONObject(0)?.optJSONObject("content")?.optJSONArray("parts")
+                val text = parts?.optJSONObject(0)?.optString("text")
+                if (!text.isNullOrBlank()) {
+                    return text
                 }
             }
             null
@@ -88,7 +93,7 @@ object WebOverviewProvider {
                 requestMethod = "GET"
                 connectTimeout = 3000
                 readTimeout = 3000
-                setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; PopLauncher)")
+                setRequestProperty("User-Agent", "PopLauncher/1.0 (Android; Privacy Search)")
                 setRequestProperty("Accept", "application/json")
             }
 
@@ -128,7 +133,7 @@ object WebOverviewProvider {
         while (out.length < maxChars) {
             val read = read(buffer, 0, minOf(buffer.size, maxChars - out.length))
             if (read <= 0) break
-            out.append(buffer, 0, read)
+            out.appendRange(buffer, 0, read)
         }
         return out.toString()
     }
@@ -179,6 +184,6 @@ object WebOverviewProvider {
         if (result.isNotBlank() && !result.endsWith(".") && !result.endsWith("!") && !result.endsWith("?") && !result.endsWith("...")) {
             result += "."
         }
-        return if (result.isNotBlank()) result else t
+        return result.ifBlank { t }
     }
 }

@@ -353,7 +353,7 @@ private fun RenderWidgetElement(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
                 color = colors.surfaceContainerHighest.copy(alpha = 0.6f),
-                border = androidx.compose.foundation.BorderStroke(1.dp, colors.outlineVariant)
+                border = BorderStroke(1.dp, colors.outlineVariant)
             ) {
                 Column(
                     modifier = Modifier.padding(12.dp),

@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.UserHandle
 import android.os.UserManager
+import androidx.core.content.edit
 import android.util.Log
 
 object PrivateSpaceHelper {
@@ -33,7 +34,7 @@ object PrivateSpaceHelper {
                     userManager.userProfiles?.let { allProfiles.addAll(it) }
                 } catch (_: Throwable) {}
 
-                val privateProfile = findPrivateProfile(context, userManager, launcherApps, allProfiles.distinct())
+                val privateProfile = findPrivateProfile(context, userManager, allProfiles.distinct())
                 if (privateProfile != null) {
                     val isQuiet = try {
                         userManager.isQuietModeEnabled(privateProfile)
@@ -140,7 +141,7 @@ object PrivateSpaceHelper {
         try {
             userManager.userProfiles?.let { allProfiles.addAll(it) }
         } catch (_: Throwable) {}
-        return findPrivateProfile(context, userManager, launcherApps, allProfiles.distinct())
+        return findPrivateProfile(context, userManager, allProfiles.distinct())
     }
 
     fun requestQuietModeUnlock(userManager: UserManager, profile: UserHandle): Boolean {
@@ -173,9 +174,7 @@ object PrivateSpaceHelper {
 
     private fun savePrivateProfileId(context: Context, id: Int) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putInt(KEY_PRIVATE_PROFILE_USER_ID, id)
-            .apply()
+            .edit { putInt(KEY_PRIVATE_PROFILE_USER_ID, id) }
     }
 
     fun openAddAppsToPrivateSpace(context: Context): Boolean {
@@ -219,11 +218,6 @@ object PrivateSpaceHelper {
         return false
     }
 
-    fun isPrivateProfile(context: Context, profile: UserHandle): Boolean {
-        val userManager = context.getSystemService(Context.USER_SERVICE) as? UserManager
-        return isPrivateProfile(userManager, profile, context)
-    }
-
     fun isPrivateProfile(userManager: UserManager?, profile: UserHandle, context: Context? = null): Boolean {
         if (userManager == null) return false
         if (profile == android.os.Process.myUserHandle()) return false
@@ -232,7 +226,8 @@ object PrivateSpaceHelper {
             profile.javaClass.getMethod("getIdentifier").invoke(profile) as? Int
         } catch (_: Throwable) {
             null
-        } ?: profile.hashCode()
+        } ?: Regex("""\d+""").find(profile.toString())?.value?.toIntOrNull()
+          ?: profile.hashCode()
 
         // 0. If previously identified and saved as Private Space, keep it permanently identified
         if (context != null) {
@@ -240,6 +235,23 @@ object PrivateSpaceHelper {
             if (savedId != null && savedId == userId) {
                 return true
             }
+        }
+
+        // Android 15+ (API 35+) UserProperties check
+        if (android.os.Build.VERSION.SDK_INT >= 35) {
+            try {
+                val getUserPropertiesMethod = userManager.javaClass.getMethod("getUserProperties", UserHandle::class.java)
+                val userProperties = getUserPropertiesMethod.invoke(userManager, profile)
+                if (userProperties != null) {
+                    val isPrivateMethod = runCatching {
+                        userProperties.javaClass.getMethod("isPrivateProfile")
+                    }.getOrNull()
+                    if (isPrivateMethod?.invoke(userProperties) == true) {
+                        if (context != null) savePrivateProfileId(context, userId)
+                        return true
+                    }
+                }
+            } catch (_: Throwable) {}
         }
 
         val profileStr = profile.toString().lowercase()
@@ -370,7 +382,6 @@ object PrivateSpaceHelper {
     private fun findPrivateProfile(
         context: Context,
         userManager: UserManager,
-        launcherApps: LauncherApps,
         profiles: List<UserHandle>
     ): UserHandle? {
         for (profile in profiles) {

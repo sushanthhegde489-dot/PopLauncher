@@ -4,7 +4,6 @@ import com.sushanth.poplauncher.bubble.BubblePhysicsEngine
 import com.sushanth.poplauncher.data.model.BubbleBehavior
 import com.sushanth.poplauncher.data.model.BubbleConfig
 import com.sushanth.poplauncher.data.model.BubbleSpeed
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.abs

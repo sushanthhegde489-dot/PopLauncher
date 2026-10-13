@@ -30,7 +30,7 @@ data class InstalledApp(
     val icon: Drawable?,
     val launchIntent: Intent,
     val words: List<String> = emptyList(),
-    val initials: String = ""
+    val initials: String = "",
 ) {
     val uniqueId: String
         get() = when {
@@ -40,9 +40,7 @@ data class InstalledApp(
         }
 
     fun matchesIdentifier(id: String): Boolean {
-        if (id == uniqueId) return true
-        if (!isClone && !isPrivate && id == packageName) return true
-        return false
+        return id == uniqueId || (!isClone && !isPrivate && id == packageName)
     }
 
     fun isContainedIn(idSet: Set<String>): Boolean {
@@ -57,7 +55,6 @@ class AppRepository(private val context: Context) {
     val installedApps: StateFlow<List<InstalledApp>> = _installedApps.asStateFlow()
 
     private val _installedPackageNames = MutableStateFlow<Set<String>>(emptySet())
-    val installedPackageNames: StateFlow<Set<String>> = _installedPackageNames.asStateFlow()
 
     fun isPackageInstalled(pkg: String?): Boolean {
         if (pkg == null) return true
@@ -122,7 +119,7 @@ class AppRepository(private val context: Context) {
 
                         val norm = displayLabel.trim().lowercase()
                         val w = norm.split(NON_ALPHANUMERIC_REGEX).filter { it.isNotBlank() }
-                        val ini = w.mapNotNull { it.firstOrNull() }.joinToString("")
+                        val ini = w.asSequence().mapNotNull { it.firstOrNull() }.joinToString("")
 
                         apps.add(
                             InstalledApp(
@@ -327,8 +324,8 @@ class AppRepository(private val context: Context) {
             if (app.isContainedIn(frictionPackages) || app.isContainedIn(hiddenPackages)) continue
 
             val target = if (caseSensitive) app.label else app.normalizedLabel
-            val words = if (app.words.isNotEmpty()) app.words else target.split(NON_ALPHANUMERIC_REGEX).filter { it.isNotBlank() }
-            val initials = if (app.initials.isNotEmpty()) app.initials else words.mapNotNull { it.firstOrNull() }.joinToString("")
+            val words = app.words.ifEmpty { target.split(NON_ALPHANUMERIC_REGEX).filter { it.isNotBlank() } }
+            val initials = app.initials.ifEmpty { words.mapNotNull { it.firstOrNull() }.joinToString("") }
 
             var score = 0
 
@@ -384,7 +381,15 @@ class AppRepository(private val context: Context) {
             .map { it.first.toSearchEntity(isFriction = false) }
     }
 
+    private val monochromeIconCache = android.util.LruCache<String, Drawable>(128)
+
     fun getAppIcon(packageName: String, isMonochrome: Boolean = false, userHandle: UserHandle? = null): Drawable? {
+        val cacheKey = "$packageName:${userHandle?.hashCode() ?: 0}"
+        if (isMonochrome) {
+            val cached = synchronized(monochromeIconCache) { monochromeIconCache[cacheKey] }
+            if (cached != null) return cached
+        }
+
         val baseIcon = _installedApps.value.firstOrNull {
             it.packageName == packageName && (userHandle == null || it.userHandle == userHandle)
         }?.icon
@@ -395,7 +400,9 @@ class AppRepository(private val context: Context) {
                 null
             }
         return if (isMonochrome && baseIcon != null) {
-            com.sushanth.poplauncher.util.IconUtils.toMonochromeDrawable(baseIcon)
+            val mono = com.sushanth.poplauncher.util.IconUtils.toMonochromeDrawable(baseIcon)
+            synchronized(monochromeIconCache) { monochromeIconCache.put(cacheKey, mono) }
+            mono
         } else {
             baseIcon
         }

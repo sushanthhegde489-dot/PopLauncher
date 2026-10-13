@@ -34,7 +34,7 @@ data class ProviderDiagnostic(
     val providerType: SearchType,
     val isAvailable: Boolean,
     val errorMessage: String? = null,
-    val resultCount: Int = 0
+    val resultCount: Int = 0,
 )
 
 data class SearchResultState(
@@ -44,7 +44,7 @@ data class SearchResultState(
     val webOverview: WebOverviewEntity? = null,
     val isSearching: Boolean = false,
     val providerDiagnostics: List<ProviderDiagnostic> = emptyList(),
-    val providerErrors: List<String> = emptyList()
+    val providerErrors: List<String> = emptyList(),
 )
 
 data class IndexingStatusState(
@@ -67,8 +67,8 @@ class SearchRepository(
     private val nonAppProviders: List<SearchProvider> = listOf(
         settingsShortcutProvider,
         ConversationSearchProvider(settingsRepository),
-        ContactSearchProvider(settingsRepository),
-        FileSearchProvider(settingsRepository),
+        ContactSearchProvider(),
+        FileSearchProvider(),
         MediaSearchProvider(settingsRepository)
     )
 
@@ -91,7 +91,7 @@ class SearchRepository(
         coroutineScope.launch {
             settingsRepository.settings
                 .distinctUntilChanged { old, new ->
-                    old.enabledProviders == new.enabledProviders && old.caseSensitive == new.caseSensitive
+                    (old.enabledProviders == new.enabledProviders) && (old.caseSensitive == new.caseSensitive)
                 }
                 .collect {
                     val currentQuery = _searchState.value.query
@@ -116,8 +116,8 @@ class SearchRepository(
     }
 
     /**
-     * Called from [MainActivity.onResume] to throttle reindexing to at most once every 6 hours.
-     * The timestamp lives here (not in the Activity) so it survives Activity recreation on
+     * Called to throttle reindexing to at most once every 6 hours.
+     * The timestamp lives here so it survives Activity recreation on
      * configuration changes and back-stack navigation.
      */
     @Volatile private var lastIndexTimestamp: Long = 0L
@@ -204,6 +204,7 @@ class SearchRepository(
         // 2 & 3. Search standard apps and other enabled providers in parallel
         val providerDiagnostics = Collections.synchronizedList(mutableListOf<ProviderDiagnostic>())
 
+        val affinityScores = searchIndexRepository.getAffinityScores(query)
         val (appResultsPair, otherResults) = coroutineScope {
             val appSearchDeferred = async {
                 val standardApps = if (settings.enabledProviders.contains(SearchType.APP)) {
@@ -223,7 +224,7 @@ class SearchRepository(
 
                 val matchingGroups = if (settings.enabledProviders.contains(SearchType.APP)) {
                     val q = if (caseSensitive) query.trim() else query.trim().lowercase()
-                    settings.appGroups.filter { group ->
+                    settings.appGroups.asSequence().filter { group ->
                         val gName = if (caseSensitive) group.name else group.name.lowercase()
                         gName.contains(q) || (q.length >= 3 && ("group".startsWith(q) || "folder".startsWith(q) || "category".startsWith(q)))
                     }.map { group ->
@@ -234,7 +235,7 @@ class SearchRepository(
                             packageNames = group.packageNames,
                             appCount = group.packageNames.size
                         )
-                    }
+                    }.toList()
                 } else {
                     emptyList()
                 }
@@ -264,7 +265,7 @@ class SearchRepository(
                                             "${provider.displayName} permission required"
                                         }
                                     ),
-                                    emptyList<SearchEntity>()
+                                    emptyList()
                                 )
                             }
                             try {
@@ -290,7 +291,7 @@ class SearchRepository(
                             }
                         }
                     }
-                    .map { deferred ->
+                    .flatMap { deferred ->
                         try {
                             val (diag, res) = deferred.await()
                             providerDiagnostics.add(diag)
@@ -300,10 +301,33 @@ class SearchRepository(
                             emptyList<SearchEntity>()
                         }
                     }
-                    .flatten()
             }
 
-            Pair(appSearchDeferred.await(), nonAppSearchDeferred.await())
+            val appResults = appSearchDeferred.await()
+            val allAppCandidates = if (frictionExactMatch != null) {
+                listOf(frictionExactMatch) + appResults
+            } else {
+                appResults
+            }
+            if (generation == searchGeneration.get() && allAppCandidates.isNotEmpty()) {
+                val appCandidates = allAppCandidates.filter { entity ->
+                    when (entity) {
+                        is AppEntity -> appRepository.isPackageInstalled(entity.packageName)
+                        else -> true
+                    }
+                }.distinctBy { it.id }.filter { it.title.isNotBlank() }
+                
+                val sortedApps = appCandidates.sortedWith(
+                    compareBy<SearchEntity> { getPriorityOrder(it) }
+                        .thenByDescending { affinityScores[it.id] ?: 0 }
+                )
+                _searchState.value = _searchState.value.copy(
+                    standardResults = sortedApps,
+                    isSearching = true
+                )
+            }
+
+            Pair(appResults, nonAppSearchDeferred.await())
         }
 
         if (generation != searchGeneration.get()) return@withContext
@@ -313,27 +337,6 @@ class SearchRepository(
             return appRepository.isPackageInstalled(pkg)
         }
 
-        // Priority Ranking Order:
-        // 0) System Private Space & Hidden Apps
-        // 1) Applications (AppEntity, DeepSearchEntity, AppGroupEntity)
-        // 2) Contacts (PersonEntity, CallEntity)
-        // 3) Messages (MessageEntity)
-        // 4) Conversations (ConversationEntity)
-        // 5) Images & Files (MediaEntity, FileEntity)
-        fun getPriorityOrder(entity: SearchEntity): Int {
-            if (entity.id.startsWith("system:private_space") || entity.id.startsWith("system:hidden_apps")) {
-                return 0
-            }
-            return when (entity) {
-                is AppEntity, is DeepSearchEntity, is com.sushanth.poplauncher.data.model.AppGroupEntity -> 1
-                is PersonEntity, is CallEntity -> 2
-                is MessageEntity -> 3
-                is ConversationEntity -> 4
-                is MediaEntity, is FileEntity -> 5
-                else -> 6
-            }
-        }
-
         val filteredCandidateResults = (appResultsPair + otherResults)
             .filter { entity ->
                 // Guarantee: Never give search results for apps that do not exist on the user's phone
@@ -341,23 +344,29 @@ class SearchRepository(
                     is AppEntity -> isPackageInstalled(entity.packageName)
                     is ConversationEntity -> entity.appPackage == null || isPackageInstalled(entity.appPackage)
                     is DeepSearchEntity -> entity.id.startsWith("system:") || isPackageInstalled(entity.appPackage)
-                    is com.sushanth.poplauncher.data.model.AppGroupEntity -> true
+                    is AppGroupEntity -> true
                     else -> true
                 }
             }
             .distinctBy { it.id }
             .filter { it.title.isNotBlank() }
 
-        // Pre-calculate affinity scores ONCE per entity to eliminate repeated map iterations during sorting
-        val affinityMap = filteredCandidateResults.associateBy({ it.id }, { searchIndexRepository.getAffinityScore(query, it.id) })
+        val combinedCandidates = if (frictionExactMatch != null) {
+            listOf(frictionExactMatch) + filteredCandidateResults
+        } else {
+            filteredCandidateResults
+        }
 
-        val combinedStandardResults = filteredCandidateResults.sortedWith(
-            compareBy<SearchEntity> { getPriorityOrder(it) }
-                .thenByDescending { entity -> affinityMap[entity.id] ?: 0 }
-        )
+        val combinedStandardResults = combinedCandidates
+            .distinctBy { it.id }
+            .sortedWith(
+                compareBy<SearchEntity> { getPriorityOrder(it) }
+                    .thenByDescending { entity -> affinityScores[entity.id] ?: 0 }
+            )
 
-        // 4. Web Overview Fallback + Deep App Search when ZERO local results found
-        val shouldShowWebOverview = combinedStandardResults.isEmpty() && frictionExactMatch == null && query.isNotEmpty()
+        // 4. Web Overview Fallback + Deep App Search when ZERO local results found and GOOGLE_OVERVIEW is enabled
+        val shouldShowWebOverview = SearchType.GOOGLE_OVERVIEW in settings.enabledProviders &&
+                combinedStandardResults.isEmpty() && frictionExactMatch == null && query.isNotEmpty()
         val webOverview = if (shouldShowWebOverview) {
             val searchUrl = "https://www.google.com/search?q=${Uri.encode(query)}"
             val browserIntent = Intent(Intent.ACTION_VIEW, searchUrl.toUri()).apply {
@@ -367,7 +376,7 @@ class SearchRepository(
             WebOverviewEntity(
                 query = query,
                 title = "AI Overview for \"$query\"",
-                subtitle = "Generating AI overview...",
+                subtitle = "Generating overview...",
                 browserIntent = browserIntent,
                 deepSearchOptions = deepSearchOptions,
                 summaryText = null,
@@ -391,13 +400,11 @@ class SearchRepository(
             null
         }
 
-        val activeBubble = frictionExactMatch ?: preservedBubble
-
         if (generation != searchGeneration.get()) return@withContext
 
         _searchState.value = SearchResultState(
             query = query,
-            activeBubbleApp = activeBubble,
+            activeBubbleApp = preservedBubble,
             standardResults = combinedStandardResults,
             webOverview = webOverview,
             isSearching = false,
@@ -405,12 +412,13 @@ class SearchRepository(
             providerErrors = providerErrors
         )
 
-        // Asynchronously pull live overview from Google (Free)
+        // Asynchronously pull overview
         currentOverviewJob?.cancel()
         if (webOverview != null) {
             currentOverviewJob = coroutineScope.launch {
                 val summary = WebOverviewProvider.fetchOverview(
-                    query = query
+                    query = query,
+                    geminiApiKey = settings.geminiApiKey
                 )
                 val currentState = _searchState.value
                 if (generation == searchGeneration.get() && currentState.query == query && currentState.webOverview != null) {
@@ -423,6 +431,13 @@ class SearchRepository(
                 }
             }
         }
+    }
+
+    fun triggerFrictionBubble(app: AppEntity) {
+        currentOverviewJob?.cancel()
+        _searchState.value = _searchState.value.copy(
+            activeBubbleApp = app
+        )
     }
 
     fun submitSearch(rawQuery: String): Boolean {
@@ -456,5 +471,19 @@ class SearchRepository(
     fun clearSearch() {
         currentOverviewJob?.cancel()
         _searchState.value = SearchResultState()
+    }
+
+    private fun getPriorityOrder(entity: SearchEntity): Int {
+        if (entity.id.startsWith("system:private_space") || entity.id.startsWith("system:hidden_apps")) {
+            return 0
+        }
+        return when (entity) {
+            is AppEntity, is DeepSearchEntity, is AppGroupEntity -> 1
+            is PersonEntity, is CallEntity -> 2
+            is MessageEntity -> 3
+            is ConversationEntity -> 4
+            is MediaEntity, is FileEntity -> 5
+            else -> 6
+        }
     }
 }

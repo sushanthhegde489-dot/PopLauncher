@@ -194,17 +194,57 @@ fun ConversationAppsScreen(
             }
         }
     ) { paddingValues ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .navigationBarsPadding(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items(filteredApps, key = { it.uniqueId }) { app ->
-                val isEnabled = allowedPackages == null || app.isContainedIn(allowedPackages)
-                val allUniqueIds = remember(apps) { apps.map { it.uniqueId }.toSet() }
+        if (apps.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues),
+                contentAlignment = Alignment.Center
+            ) {
+                androidx.compose.material3.CircularProgressIndicator(
+                    color = MaterialTheme.colorScheme.primary,
+                    strokeWidth = 2.5.dp
+                )
+            }
+        } else if (filteredApps.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+                    .padding(32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = if (filterQuery.isNotBlank()) "No applications found matching \"$filterQuery\"" else "No applications available",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 14.sp
+                    )
+                    if (filterQuery.isNotBlank()) {
+                        OutlinedButton(
+                            onClick = { filterQuery = "" },
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("Clear search", fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+                    .navigationBarsPadding(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(filteredApps, key = { it.uniqueId }) { app ->
+                    val isEnabled = allowedPackages == null || app.isContainedIn(allowedPackages)
+                    val allUniqueIds = remember(apps) { apps.map { it.uniqueId }.toSet() }
 
                 Row(
                     modifier = Modifier
@@ -278,4 +318,5 @@ fun ConversationAppsScreen(
             }
         }
     }
+}
 }

@@ -156,7 +156,7 @@ class FileAndMediaSearchProviderTest {
 
     @Test
     fun testFileAccessStateEnum() {
-        val states = FileAccessState.values()
+        val states = FileAccessState.entries
         assertTrue(states.contains(FileAccessState.ALL_FILES))
         assertTrue(states.contains(FileAccessState.MEDIASTORE_ONLY))
         assertTrue(states.contains(FileAccessState.DENIED))

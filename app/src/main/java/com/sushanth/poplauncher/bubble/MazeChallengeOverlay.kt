@@ -59,6 +59,11 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -289,6 +294,16 @@ fun MazeChallengeOverlay(
                                 shape = CircleShape
                             )
                             .border(1.5.dp, MaterialTheme.colorScheme.primary, CircleShape)
+                            .semantics {
+                                role = Role.Button
+                                contentDescription = "Draggable token for ${app.title}. Navigate maze or activate to complete."
+                                onClick(label = "Complete maze and launch ${app.title}") {
+                                    isSuccess = true
+                                    triggerHeavyHaptic(vibrator)
+                                    onSuccess(app)
+                                    true
+                                }
+                            }
                             .pointerInput(Unit) {
                                 detectDragGestures(
                                     onDragStart = {
@@ -315,7 +330,7 @@ fun MazeChallengeOverlay(
 
                                             // Check Goal Reach
                                             val distToGoal = hypot(newX - goalNode.x, newY - goalNode.y)
-                                            if (distToGoal <= iconRadiusPx * 1.2f) {
+                                            if (distToGoal <= (iconRadiusPx * 1.2f)) {
                                                 isSuccess = true
                                                 triggerHeavyHaptic(vibrator)
                                                 onSuccess(app)
@@ -378,7 +393,7 @@ private fun distanceToSegment(p: Offset, a: Offset, b: Offset): Float {
 }
 
 private fun triggerLightHaptic(vibrator: Vibrator?) {
-    vibrator?.let {
+    vibrator?.takeIf { it.hasVibrator() }?.let {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             it.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK))
         } else {
@@ -389,7 +404,7 @@ private fun triggerLightHaptic(vibrator: Vibrator?) {
 }
 
 private fun triggerWallCollisionHaptic(vibrator: Vibrator?) {
-    vibrator?.let {
+    vibrator?.takeIf { it.hasVibrator() }?.let {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             it.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_DOUBLE_CLICK))
         } else {
@@ -400,7 +415,7 @@ private fun triggerWallCollisionHaptic(vibrator: Vibrator?) {
 }
 
 private fun triggerHeavyHaptic(vibrator: Vibrator?) {
-    vibrator?.let {
+    vibrator?.takeIf { it.hasVibrator() }?.let {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             it.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_HEAVY_CLICK))
         } else {
@@ -429,61 +444,43 @@ private fun generateRandomMazeWaypoints(widthPx: Float, heightPx: Float): List<O
         return Offset(paddingX + c * cellW, paddingY + r * cellH)
     }
 
-    repeat(40) {
-        val startC = Random.nextInt(0, cols)
-        val startR = 0
-        val goalC = Random.nextInt(0, cols)
-        val goalR = rows - 1
+    val startC = Random.nextInt(0, cols)
+    val startR = 0
+    val goalC = Random.nextInt(0, cols)
+    val goalR = rows - 1
 
-        val pathCells = mutableListOf<Pair<Int, Int>>()
-        val visited = Array(cols) { BooleanArray(rows) }
+    val path = mutableListOf<Pair<Int, Int>>()
+    val visited = Array(cols) { BooleanArray(rows) }
 
-        var curC = startC
-        var curR = startR
-        pathCells.add(curC to curR)
-        visited[curC][curR] = true
+    fun dfs(c: Int, r: Int, minLength: Int): Boolean {
+        path.add(c to r)
+        visited[c][r] = true
+        if (c == goalC && r == goalR && path.size >= minLength) {
+            return true
+        }
 
-        var reached = false
-        var steps = 0
-        while (!reached && steps < 30) {
-            steps++
-            val dirs = listOf(-1 to 0, 1 to 0, 0 to 1, 0 to -1).shuffled()
-            val validNeighbors = mutableListOf<Pair<Int, Int>>()
-            for ((dc, dr) in dirs) {
-                val nc = curC + dc
-                val nr = curR + dr
-                if (nc in 0 until cols && nr in 0 until rows && !visited[nc][nr]) {
-                    validNeighbors.add(nc to nr)
-                }
-            }
-
-            if (validNeighbors.isEmpty()) break
-
-            val next = validNeighbors.minByOrNull { (nc, nr) ->
-                val dist = abs(nc - goalC) + abs(nr - goalR)
-                dist + Random.nextFloat() * 1.8f
-            } ?: validNeighbors.first()
-
-            curC = next.first
-            curR = next.second
-            pathCells.add(curC to curR)
-            visited[curC][curR] = true
-
-            if (curC == goalC && curR == goalR) {
-                reached = true
+        val dirs = listOf(-1 to 0, 1 to 0, 0 to 1, 0 to -1).shuffled()
+        for ((dc, dr) in dirs) {
+            val nc = c + dc
+            val nr = r + dr
+            if (nc in 0 until cols && nr in 0 until rows && !visited[nc][nr]) {
+                if (dfs(nc, nr, minLength)) return true
             }
         }
 
-        if (reached && pathCells.size >= 5) {
-            return pathCells.map { (c, r) -> gridToOffset(c, r) }
-        }
+        visited[c][r] = false
+        path.removeAt(path.size - 1)
+        return false
+    }
+
+    if (dfs(startC, startR, 6) || dfs(startC, startR, 4)) {
+        return path.map { (c, r) -> gridToOffset(c, r) }
     }
 
     return listOf(
-        gridToOffset(0, 0),
-        gridToOffset(0, 2),
-        gridToOffset(2, 2),
-        gridToOffset(2, 4),
-        gridToOffset(3, 4)
+        gridToOffset(startC, 0),
+        gridToOffset(startC, 2),
+        gridToOffset(goalC, 2),
+        gridToOffset(goalC, rows - 1)
     )
 }

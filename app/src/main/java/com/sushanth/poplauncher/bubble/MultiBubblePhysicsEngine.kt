@@ -58,6 +58,18 @@ class MultiBubblePhysicsEngine(
         BubbleBody(app = app, seedIndex = index)
     }
 
+    val isSettled: Boolean
+        get() {
+            if (!isInitialized || bodies.isEmpty()) return false
+            if (bodies.any { it.isDragging }) return false
+            var totalKe = 0f
+            for (b in bodies) {
+                totalKe += (b.velX * b.velX + b.velY * b.velY)
+                if (totalKe >= 0.05f) return false
+            }
+            return true
+        }
+
     val speedMultiplier: Float
         get() = when (config.speed) {
             BubbleSpeed.SLOW -> 90f
@@ -266,12 +278,17 @@ class MultiBubblePhysicsEngine(
                 val minDist = collisionDiameter
 
                 if (distSq < minDist * minDist) {
-                    val dist = sqrt(distSq.toDouble()).toFloat()
-                    val (nx, ny) = if (dist > 0.0001f) {
-                        (dx / dist) to (dy / dist)
-                    } else {
-                        1f to 0f
+                    var curDx = dx
+                    var curDy = dy
+                    var dist = sqrt(distSq.toDouble()).toFloat()
+                    if (dist < 0.001f) {
+                        curDx = (Random.nextFloat() - 0.5f) * 0.2f
+                        if (curDx == 0f) curDx = 0.1f
+                        curDy = (Random.nextFloat() - 0.5f) * 0.2f
+                        dist = sqrt((curDx * curDx + curDy * curDy).toDouble()).toFloat().coerceAtLeast(0.0001f)
                     }
+                    val nx = curDx / dist
+                    val ny = curDy / dist
                     val overlap = minDist - dist
 
                     // Position separation

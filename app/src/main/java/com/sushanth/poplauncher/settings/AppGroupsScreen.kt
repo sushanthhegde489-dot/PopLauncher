@@ -204,7 +204,7 @@ fun AppGroupsScreen(
                         color = MaterialTheme.colorScheme.surface,
                         border = androidx.compose.foundation.BorderStroke(
                             width = 1.dp,
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                            color = MaterialTheme.colorScheme.outlineVariant
                         ),
                         tonalElevation = 1.dp
                     ) {
@@ -219,7 +219,7 @@ fun AppGroupsScreen(
                                 modifier = Modifier
                                     .size(44.dp)
                                     .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)),
+                                    .background(MaterialTheme.colorScheme.primaryContainer),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(

@@ -6,7 +6,6 @@ import com.sushanth.poplauncher.data.model.GestureType
 import com.sushanth.poplauncher.widgets.WidgetLayout
 import com.sushanth.poplauncher.widgets.WidgetManager
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
