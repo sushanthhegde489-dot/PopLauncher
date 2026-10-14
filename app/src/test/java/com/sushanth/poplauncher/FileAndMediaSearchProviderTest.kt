@@ -7,9 +7,9 @@ import com.sushanth.poplauncher.data.model.MediaEntity
 import com.sushanth.poplauncher.data.model.SearchType
 import com.sushanth.poplauncher.data.repository.ProviderDiagnostic
 import com.sushanth.poplauncher.data.repository.SearchResultState
-import org.junit.Assert
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -121,13 +121,15 @@ class FileAndMediaSearchProviderTest {
 
         val (fileSel, fileArgs) = provider.buildFileSelection("file", "file")
         assertTrue(fileSel != null && fileSel.contains("_size >= 0"))
-        Assert.assertNull(fileArgs)
+        assertNull(fileArgs)
 
         val (pdfSel, pdfArgs) = provider.buildFileSelection("pdf", "pdf")
+        assertTrue(pdfSel != null && pdfSel.contains("_size >= 0"))
         assertTrue(pdfArgs!!.contains("%.pdf"))
         assertTrue(pdfArgs.contains("%pdf%"))
 
         val (sheetSel, sheetArgs) = provider.buildFileSelection("sheet", "sheet")
+        assertTrue(sheetSel != null && sheetSel.contains("_size >= 0"))
         assertTrue(sheetArgs!!.contains("%spreadsheet%"))
         assertTrue(sheetArgs.contains("%excel%"))
     }
@@ -164,7 +166,7 @@ class FileAndMediaSearchProviderTest {
 
     @Test
     fun testMediaAccessStateEnum() {
-        val states = MediaAccessState.values()
+        val states = MediaAccessState.entries
         assertTrue(states.contains(MediaAccessState.FULL))
         assertTrue(states.contains(MediaAccessState.SELECTED_ONLY))
         assertTrue(states.contains(MediaAccessState.DENIED))

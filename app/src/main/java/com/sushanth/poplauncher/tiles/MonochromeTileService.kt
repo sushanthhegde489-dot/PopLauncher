@@ -6,7 +6,6 @@ import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import com.sushanth.poplauncher.R
 import com.sushanth.poplauncher.data.repository.SettingsRepository
-import com.sushanth.poplauncher.ui.theme.ThemePalette
 
 class MonochromeTileService : TileService() {
 
@@ -14,7 +13,7 @@ class MonochromeTileService : TileService() {
 
     override fun onCreate() {
         super.onCreate()
-        settingsRepository = SettingsRepository(this)
+        settingsRepository = SettingsRepository(applicationContext)
     }
 
     override fun onStartListening() {
@@ -24,13 +23,8 @@ class MonochromeTileService : TileService() {
 
     override fun onClick() {
         super.onClick()
-        val currentPalette = settingsRepository.settings.value.themePalette
-        val newPalette = if (currentPalette.isMonochrome) {
-            ThemePalette.DEFAULT_MAROON
-        } else {
-            ThemePalette.MONOCHROME
-        }
-        settingsRepository.setThemePalette(newPalette)
+        val isMono = settingsRepository.settings.value.themePalette.isMonochrome
+        settingsRepository.setMonochromeMode(!isMono)
         updateTileState()
     }
 

@@ -22,11 +22,12 @@ data class IndexedLaunch(
 
 private val Context.dataStore by preferencesDataStore(name = "pop_search_index")
 
-class SearchIndexRepository(private val context: Context, private val coroutineScope: CoroutineScope) {
+class SearchIndexRepository(context: Context, private val coroutineScope: CoroutineScope) {
 
+    private val appContext = context.applicationContext
     private val lock = Any()
     // In-memory cache for ultra-fast, zero-battery queries: normalized query -> list of launches
-    private val indexCache = mutableMapOf<String, MutableList<IndexedLaunch>>()
+    private val indexCache = LinkedHashMap<String, MutableList<IndexedLaunch>>(MAX_QUERIES, 0.75f, true)
     private var persistJob: Job? = null
 
     init {
@@ -36,17 +37,17 @@ class SearchIndexRepository(private val context: Context, private val coroutineS
     }
 
     private suspend fun loadIndex() {
-        val prefs = context.dataStore.data.first()
+        val prefs = appContext.dataStore.data.first()
         val raw = prefs[KEY_INDEX_DATA] ?: return
         try {
             val root = JSONObject(raw)
             val keys = root.keys()
             synchronized(lock) {
-                while (keys.hasNext()) {
+                while (keys.hasNext() && indexCache.size < MAX_QUERIES) {
                     val q = keys.next()
                     val arr = root.getJSONArray(q)
                     val list = mutableListOf<IndexedLaunch>()
-                    for (i in 0 until arr.length()) {
+                    for (i in 0 until minOf(arr.length(), MAX_ITEMS_PER_QUERY)) {
                         val obj = arr.getJSONObject(i)
                         list.add(
                             IndexedLaunch(
@@ -66,7 +67,7 @@ class SearchIndexRepository(private val context: Context, private val coroutineS
         try {
             val root = JSONObject()
             val entriesSnapshot = synchronized(lock) {
-                indexCache.entries.take(100).map { (k, v) -> k to v.take(10).toList() }
+                indexCache.entries.take(MAX_QUERIES).map { (k, v) -> k to v.take(MAX_ITEMS_PER_QUERY).toList() }
             }
             for ((q, list) in entriesSnapshot) {
                 val arr = JSONArray()
@@ -80,7 +81,7 @@ class SearchIndexRepository(private val context: Context, private val coroutineS
                 }
                 root.put(q, arr)
             }
-            context.dataStore.edit { prefs ->
+            appContext.dataStore.edit { prefs ->
                 prefs[KEY_INDEX_DATA] = root.toString()
             }
         } catch (_: Exception) {}
@@ -93,16 +94,26 @@ class SearchIndexRepository(private val context: Context, private val coroutineS
         synchronized(lock) {
             val list = indexCache.getOrPut(q) { mutableListOf() }
             val existingIdx = list.indexOfFirst { it.entityId == entityId }
+            val now = System.currentTimeMillis()
 
             if (existingIdx >= 0) {
                 val old = list[existingIdx]
-                list[existingIdx] = old.copy(count = old.count + 1, lastUsed = System.currentTimeMillis())
+                list[existingIdx] = old.copy(count = old.count + 1, lastUsed = now)
             } else {
-                list.add(IndexedLaunch(entityId = entityId, count = 1, lastUsed = System.currentTimeMillis()))
+                list.add(IndexedLaunch(entityId = entityId, count = 1, lastUsed = now))
             }
 
-            // Sort by count desc then lastUsed desc
+            // Sort by count desc then lastUsed desc and bound per-query list size
             list.sortWith(compareByDescending<IndexedLaunch> { it.count }.thenByDescending { it.lastUsed })
+            while (list.size > MAX_ITEMS_PER_QUERY) {
+                list.removeAt(list.lastIndex)
+            }
+
+            // Bound total queries in memory using LRU order
+            while (indexCache.size > MAX_QUERIES) {
+                val eldestKey = indexCache.entries.firstOrNull()?.key ?: break
+                indexCache.remove(eldestKey)
+            }
         }
         schedulePersist()
     }
@@ -128,22 +139,24 @@ class SearchIndexRepository(private val context: Context, private val coroutineS
         val results = mutableMapOf<String, Int>()
 
         synchronized(lock) {
+            val exactIds = hashSetOf<String>()
             // Exact query score
             val exactList = indexCache[q]
             if (exactList != null) {
                 for (item in exactList) {
                     results[item.entityId] = item.count * 10
+                    exactIds.add(item.entityId)
                 }
             }
 
-            // Prefix match score
+            // Prefix match score (highest count across matching prefixes wins if not already an exact match)
             for ((cachedQuery, list) in indexCache) {
-                if (cachedQuery == q) continue // Already handled
-                
+                if (cachedQuery == q) continue
+
                 if (q.startsWith(cachedQuery) || cachedQuery.startsWith(q)) {
                     for (item in list) {
-                        if (results.containsKey(item.entityId)) continue
-                        
+                        if (exactIds.contains(item.entityId)) continue
+
                         val currentScore = results[item.entityId] ?: 0
                         val newScore = item.count * 3
                         if (newScore > currentScore) {
@@ -157,6 +170,8 @@ class SearchIndexRepository(private val context: Context, private val coroutineS
     }
 
     companion object {
+        private const val MAX_QUERIES = 100
+        private const val MAX_ITEMS_PER_QUERY = 10
         private val KEY_INDEX_DATA = stringPreferencesKey("search_index_json")
     }
 }

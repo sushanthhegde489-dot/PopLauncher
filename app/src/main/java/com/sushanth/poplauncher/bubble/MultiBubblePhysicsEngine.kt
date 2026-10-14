@@ -1,12 +1,9 @@
 package com.sushanth.poplauncher.bubble
 
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.setValue
 import com.sushanth.poplauncher.data.model.AppEntity
 import com.sushanth.poplauncher.data.model.BubbleBehavior
 import com.sushanth.poplauncher.data.model.BubbleConfig
-import com.sushanth.poplauncher.data.model.BubbleSpeed
+import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.max
@@ -21,16 +18,14 @@ class BubbleBody(
     initialY: Float = 0f,
     val seedIndex: Int = 0
 ) {
-    var posX by mutableFloatStateOf(initialX)
-    var posY by mutableFloatStateOf(initialY)
+    var posX: Float = initialX
+    var posY: Float = initialY
 
     var velX: Float = 0f
     var velY: Float = 0f
 
     var isDragging: Boolean = false
-    var dragStartX: Float = 0f
-    var dragStartY: Float = 0f
-    var idleTimerMs: Long = 0L
+    var idleElapsedSeconds: Float = 0f
 }
 
 class MultiBubblePhysicsEngine(
@@ -71,11 +66,7 @@ class MultiBubblePhysicsEngine(
         }
 
     val speedMultiplier: Float
-        get() = when (config.speed) {
-            BubbleSpeed.SLOW -> 90f
-            BubbleSpeed.NORMAL -> 170f
-            BubbleSpeed.FAST -> 280f
-        }
+        get() = 170f * config.speed.speedMultiplier
 
     fun updateConfig(newConfig: BubbleConfig) {
         this.config = newConfig
@@ -157,8 +148,6 @@ class MultiBubblePhysicsEngine(
     fun startDrag(id: String) {
         val body = bodies.firstOrNull { it.app.id == id } ?: return
         body.isDragging = true
-        body.dragStartX = body.posX
-        body.dragStartY = body.posY
         body.velX = 0f
         body.velY = 0f
     }
@@ -172,7 +161,7 @@ class MultiBubblePhysicsEngine(
     fun releaseDrag(id: String, flingVx: Float, flingVy: Float) {
         val body = bodies.firstOrNull { it.app.id == id } ?: return
         body.isDragging = false
-        body.idleTimerMs = System.currentTimeMillis()
+        body.idleElapsedSeconds = 0f
         val speed = sqrt(flingVx * flingVx + flingVy * flingVy)
         if (speed > 50f) {
             body.velX = flingVx.coerceIn(-1800f, 1800f)
@@ -193,19 +182,22 @@ class MultiBubblePhysicsEngine(
         for (body in bodies) {
             if (body.isDragging) continue
 
-            // Idle recovery
-            val timeSinceRelease = System.currentTimeMillis() - body.idleTimerMs
-            if (body.idleTimerMs > 0L && timeSinceRelease < config.idleDelayMs) {
-                val ratio = timeSinceRelease.toFloat() / config.idleDelayMs.toFloat()
-                body.velX += (body.velX.coerceIn(-10f, 10f)) * ratio
-                body.velY += (body.velY.coerceIn(-10f, 10f)) * ratio
+            body.idleElapsedSeconds += dt
+
+            // Smooth idle recovery after drag release
+            val idleDelaySeconds = (config.idleDelayMs / 1000f).coerceAtLeast(0.001f)
+            val recoveryFactor = if (config.idleDelayMs > 0L && body.idleElapsedSeconds < idleDelaySeconds) {
+                (body.idleElapsedSeconds / idleDelaySeconds).coerceIn(0.2f, 1f)
+            } else {
+                1f
             }
 
             // Behavioral physics
             when (config.behavior) {
                 BubbleBehavior.DRIFT -> {
                     val wanderAngle = (Random.nextFloat() - 0.5f) * 0.35f
-                    val curSpeed = sqrt(body.velX * body.velX + body.velY * body.velY).coerceAtLeast(speedMultiplier * 0.5f)
+                    val minDriftSpeed = speedMultiplier * 0.5f * recoveryFactor
+                    val curSpeed = sqrt(body.velX * body.velX + body.velY * body.velY).coerceAtLeast(minDriftSpeed)
                     val curAngle = atan2(body.velY, body.velX) + wanderAngle * dt * 4f
                     body.velX = cos(curAngle) * curSpeed
                     body.velY = sin(curAngle) * curSpeed
@@ -213,14 +205,14 @@ class MultiBubblePhysicsEngine(
                 BubbleBehavior.RANDOMIZED -> {
                     if (Random.nextFloat() < 0.03f) {
                         val angle = Random.nextFloat() * 2f * Math.PI.toFloat()
-                        val targetSpeed = speedMultiplier * (0.7f + Random.nextFloat() * 0.6f)
+                        val targetSpeed = speedMultiplier * (0.7f + Random.nextFloat() * 0.6f) * recoveryFactor
                         body.velX = body.velX * 0.75f + cos(angle) * targetSpeed * 0.25f
                         body.velY = body.velY * 0.75f + sin(angle) * targetSpeed * 0.25f
                     }
                 }
                 BubbleBehavior.CONTINUOUS -> {
                     val curSpeed = sqrt(body.velX * body.velX + body.velY * body.velY)
-                    if (curSpeed < speedMultiplier * 0.8f) {
+                    if (curSpeed < speedMultiplier * 0.8f * recoveryFactor) {
                         body.velX *= 1.04f
                         body.velY *= 1.04f
                     }
@@ -248,18 +240,18 @@ class MultiBubblePhysicsEngine(
 
             if (body.posX <= minBoundX) {
                 body.posX = minBoundX
-                body.velX = kotlin.math.abs(body.velX) * bounce
+                body.velX = abs(body.velX) * bounce
             } else if (body.posX >= maxBoundX) {
                 body.posX = maxBoundX
-                body.velX = -kotlin.math.abs(body.velX) * bounce
+                body.velX = -abs(body.velX) * bounce
             }
 
             if (body.posY <= minBoundY) {
                 body.posY = minBoundY
-                body.velY = kotlin.math.abs(body.velY) * bounce
+                body.velY = abs(body.velY) * bounce
             } else if (body.posY >= maxBoundY) {
                 body.posY = maxBoundY
-                body.velY = -kotlin.math.abs(body.velY) * bounce
+                body.velY = -abs(body.velY) * bounce
             }
         }
     }

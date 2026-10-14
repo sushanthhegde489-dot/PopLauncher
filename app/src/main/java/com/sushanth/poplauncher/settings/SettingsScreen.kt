@@ -1,21 +1,20 @@
-
 package com.sushanth.poplauncher.settings
 
 import android.app.Activity
 import android.app.role.RoleManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.Settings
 import androidx.core.net.toUri
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.border
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -31,11 +30,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -44,6 +42,8 @@ import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ColorLens
+import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.OpenInBrowser
@@ -53,14 +53,11 @@ import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Smartphone
 import androidx.compose.material.icons.outlined.TouchApp
-import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -71,8 +68,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -80,24 +77,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.sushanth.poplauncher.MainActivity
 import com.sushanth.poplauncher.MediaAccessState
 import com.sushanth.poplauncher.R
+import com.sushanth.poplauncher.data.model.AppGroup
 import com.sushanth.poplauncher.data.model.BubbleBehavior
 import com.sushanth.poplauncher.data.model.BubbleSpeed
-import com.sushanth.poplauncher.data.model.AppGroup
 import com.sushanth.poplauncher.data.model.GestureActionType
 import com.sushanth.poplauncher.data.model.GestureConfig
 import com.sushanth.poplauncher.data.model.GestureType
@@ -105,12 +100,13 @@ import com.sushanth.poplauncher.data.model.PopDifficulty
 import com.sushanth.poplauncher.data.model.SearchType
 import com.sushanth.poplauncher.data.repository.AppRepository
 import com.sushanth.poplauncher.data.repository.InstalledApp
-import com.sushanth.poplauncher.data.repository.SearchRepository
 import com.sushanth.poplauncher.data.repository.SettingsRepository
 import com.sushanth.poplauncher.ui.theme.LocalIsMonochromeTheme
 import com.sushanth.poplauncher.ui.theme.ThemePalette
+import com.sushanth.poplauncher.ui.theme.colorToHex
 import com.sushanth.poplauncher.ui.theme.parseHexColor
-import kotlin.math.min
+import com.sushanth.poplauncher.util.drawableToBitmap
+import kotlin.math.abs
 
 @Composable
 fun SettingsScreen(
@@ -141,7 +137,7 @@ fun SettingsScreen(
     var choosingAppForGesture by remember { mutableStateOf<GestureType?>(null) }
     var choosingGroupForGesture by remember { mutableStateOf<GestureType?>(null) }
 
-    val policyUrl = androidx.compose.ui.res.stringResource(
+    val policyUrl = stringResource(
         R.string.privacy_policy_url
     )
 
@@ -165,9 +161,6 @@ fun SettingsScreen(
         }
     }
 
-    /*
-     * Actual visual color picker.
-     */
     if (showCustomColor) {
         ColorPickerDialog(
             initialColor = runCatching {
@@ -179,12 +172,7 @@ fun SettingsScreen(
                 showCustomColor = false
             },
             onApply = { color ->
-                val hex = String.format(
-                    "#%02X%02X%02X",
-                    (color.red * 255).toInt(),
-                    (color.green * 255).toInt(),
-                    (color.blue * 255).toInt()
-                )
+                val hex = colorToHex(color)
 
                 settingsRepository.setCustomColor(hex)
                 settingsRepository.setThemePalette(
@@ -286,7 +274,7 @@ fun SettingsScreen(
     }
 
     configuringGesture?.let { gestureType ->
-        val currentConfig = settings.gestures[gestureType] ?: GestureConfig()
+        val currentConfig = settings.getGesture(gestureType)
         GestureActionPickerDialog(
             gestureType = gestureType,
             currentConfig = currentConfig,
@@ -373,8 +361,6 @@ fun SettingsScreen(
              * --------------------------------------------------------------
              * Appearance
              * --------------------------------------------------------------
-             *
-             * When monochrome is enabled, all accent-color controls disappear.
              */
             SettingsSection(title = "Appearance") {
 
@@ -404,13 +390,6 @@ fun SettingsScreen(
                         color = MaterialTheme.colorScheme.outlineVariant
                     )
 
-                    /*
-                     * Fixed palette spacing:
-                     *
-                     * - no large leading gap
-                     * - equal spacing between every palette
-                     * - content starts exactly at the section padding
-                     */
                     PaletteChoices(
                         selectedId = settings.themePalette.id,
                         onSelect = {
@@ -423,20 +402,14 @@ fun SettingsScreen(
                     )
                 }
 
-                    SwitchPreferenceItem(
-                        title = "Monochrome mode",
-                        subtitle = "Use a clean monochrome style for app icons and interface.",
-                        checked = settings.themePalette.isMonochrome,
-                        onCheckedChange = { checked ->
-                            settingsRepository.setThemePalette(
-                                if (checked) {
-                                    ThemePalette.MONOCHROME
-                                } else {
-                                    ThemePalette.DEFAULT_MAROON
-                                }
-                            )
-                        }
-                    )
+                SwitchPreferenceItem(
+                    title = "Monochrome mode",
+                    subtitle = "Use a clean monochrome style for app icons and interface.",
+                    checked = settings.themePalette.isMonochrome,
+                    onCheckedChange = { checked ->
+                        settingsRepository.setMonochromeMode(checked)
+                    }
+                )
             }
 
             /*
@@ -462,7 +435,7 @@ fun SettingsScreen(
 
                     val dimOptions = listOf("None", "20%", "40%", "60%")
                     val dimValues = listOf(0.0f, 0.2f, 0.4f, 0.6f)
-                    val selectedDimIndex = dimValues.indexOfFirst { kotlin.math.abs(it - settings.wallpaperDim) < 0.05f }.let {
+                    val selectedDimIndex = dimValues.indexOfFirst { abs(it - settings.wallpaperDim) < 0.05f }.let {
                         if (it == -1) 0 else it
                     }
 
@@ -575,7 +548,7 @@ fun SettingsScreen(
                             color = MaterialTheme.colorScheme.outlineVariant
                         )
                     }
-                    val config = settings.gestures[gestureType] ?: GestureConfig()
+                    val config = settings.getGesture(gestureType)
                     val subtitle = when (config.actionType) {
                         GestureActionType.NONE -> "None"
                         GestureActionType.OPEN_APP -> {
@@ -620,11 +593,6 @@ fun SettingsScreen(
              * --------------------------------------------------------------
              * Launcher
              * --------------------------------------------------------------
-             *
-             * Custom Widgets has intentionally been removed.
-             *
-             * Default launcher only appears when Pop Launcher isn't already
-             * the default Home app.
              */
             SettingsSection(title = "Launcher") {
 
@@ -684,11 +652,9 @@ fun SettingsScreen(
 
                 SegmentedPreference(
                     title = "Bubble speed",
-                    options = BubbleSpeed.entries.map { it.label },
+                    options = remember { BubbleSpeed.entries.map { it.label } },
                     selectedIndex = settings.bubbleSpeed.ordinal,
                     onSelected = {
-                        // Debounce by doing nothing here if logic is complex, 
-                        // but simple state sets are fast enough.
                         settingsRepository.setBubbleSpeed(
                             BubbleSpeed.entries[it]
                         )
@@ -702,7 +668,7 @@ fun SettingsScreen(
 
                 SegmentedPreference(
                     title = "Bubble behavior",
-                    options = BubbleBehavior.entries.map { it.label },
+                    options = remember { BubbleBehavior.entries.map { it.label } },
                     selectedIndex = settings.bubbleBehavior.ordinal,
                     onSelected = {
                         settingsRepository.setBubbleBehavior(
@@ -718,8 +684,10 @@ fun SettingsScreen(
 
                 SegmentedPreference(
                     title = "Press depth",
-                    options = PopDifficulty.entries.map {
-                        it.label.substringBefore(" (")
+                    options = remember {
+                        PopDifficulty.entries.map {
+                            it.label.substringBefore(" (")
+                        }
                     },
                     selectedIndex = settings.popDifficulty.ordinal,
                     onSelected = {
@@ -756,7 +724,9 @@ fun SettingsScreen(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
                 val personEnabled = settings.enabledProviders.contains(SearchType.PERSON)
-                val personHasPermission = mainActivity?.hasPermissionForProvider(SearchType.PERSON) ?: true
+                val personHasPermission = remember(permissionRefreshTick, personEnabled) {
+                    mainActivity?.hasPermissionForProvider(SearchType.PERSON) ?: true
+                }
                 val personSubtitle = when {
                     personEnabled && personHasPermission -> "Search contacts on this device."
                     personEnabled && !personHasPermission -> "Contacts permission required — tap to grant"
@@ -842,7 +812,9 @@ fun SettingsScreen(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
                 val mediaEnabled = settings.enabledProviders.contains(SearchType.MEDIA)
-                val mediaAccess = mainActivity?.getMediaAccessState() ?: MediaAccessState.FULL
+                val mediaAccess = remember(permissionRefreshTick, mediaEnabled) {
+                    mainActivity?.getMediaAccessState() ?: MediaAccessState.FULL
+                }
                 val mediaSubtitle = when (mediaAccess) {
                     MediaAccessState.FULL -> "Search local photos and videos."
                     MediaAccessState.SELECTED_ONLY -> "Limited access (selected photos only) — tap to grant full access."
@@ -859,8 +831,6 @@ fun SettingsScreen(
                             enabled
                         )
                         if (enabled && (mediaAccess != MediaAccessState.FULL)) {
-                            // On Android 14+, selected-photo access can be upgraded by requesting
-                            // the media permissions again.
                             mainActivity?.requestPermissionForProvider(SearchType.MEDIA)
                         }
                     }
@@ -1254,6 +1224,10 @@ private fun PaletteChoices(
     selectedId: String,
     onSelect: (ThemePalette) -> Unit
 ) {
+    val nonMonochromePalettes = remember {
+        ThemePalette.entries.filterNot { it.isMonochrome }
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1267,32 +1241,30 @@ private fun PaletteChoices(
         verticalAlignment = Alignment.CenterVertically
     ) {
 
-        ThemePalette.entries
-            .filterNot { it.isMonochrome }
-            .forEach { palette ->
+        nonMonochromePalettes.forEach { palette ->
 
-                val selected = selectedId == palette.id
+            val selected = selectedId == palette.id
 
-                Column(
-                    modifier = Modifier
-                        .width(48.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .clickable {
-                            onSelect(palette)
-                        }
-                        .padding(
-                            vertical = 6.dp
-                        ),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(7.dp)
-                ) {
+            Column(
+                modifier = Modifier
+                    .width(48.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .clickable {
+                        onSelect(palette)
+                    }
+                    .padding(
+                        vertical = 6.dp
+                    ),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
 
-                    AccentPreview(
-                        color = palette.previewDot,
-                        selected = selected
-                    )
-                }
+                AccentPreview(
+                    color = palette.previewDot,
+                    selected = selected
+                )
             }
+        }
     }
 }
 
@@ -1485,6 +1457,15 @@ private fun GestureActionPickerDialog(
     onChooseApp: () -> Unit,
     onChooseGroup: () -> Unit
 ) {
+    val availableActions = remember {
+        @Suppress("DEPRECATION")
+        GestureActionType.entries.filter {
+            it != GestureActionType.OPEN_NOTIFICATIONS &&
+                    it != GestureActionType.OPEN_SETTINGS &&
+                    it != GestureActionType.LOCK_SCREEN
+        }
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -1509,17 +1490,11 @@ private fun GestureActionPickerDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                @Suppress("DEPRECATION")
-                val availableActions = GestureActionType.entries.filter {
-                    it != GestureActionType.OPEN_NOTIFICATIONS &&
-                    it != GestureActionType.OPEN_SETTINGS &&
-                    it != GestureActionType.LOCK_SCREEN
-                }
                 availableActions.forEach { action ->
                     @Suppress("DEPRECATION")
                     val isSelected = currentConfig.actionType == action ||
                             (action == GestureActionType.OPEN_NOTIFICATION_SHADE && currentConfig.actionType == GestureActionType.OPEN_NOTIFICATIONS)
-                    
+
                     val actionTitle = when (action) {
                         GestureActionType.NONE -> "None"
                         GestureActionType.OPEN_APP -> "Open specific app"
@@ -1653,13 +1628,16 @@ private fun AppPickerDialog(
     var searchQuery by remember { mutableStateOf("") }
     val isMonochrome = LocalIsMonochromeTheme.current
 
-    val filteredApps = remember(apps, searchQuery) {
-        val distinct = apps.distinctBy { it.uniqueId }.sortedBy { it.label.lowercase() }
+    val distinctApps = remember(apps) {
+        apps.distinctBy { it.uniqueId }.sortedBy { it.label.lowercase() }
+    }
+
+    val filteredApps = remember(distinctApps, searchQuery) {
         if (searchQuery.isBlank()) {
-            distinct
+            distinctApps
         } else {
             val q = searchQuery.trim().lowercase()
-            distinct.filter { it.label.lowercase().contains(q) }
+            distinctApps.filter { it.label.lowercase().contains(q) }
         }
     }
 
@@ -1719,7 +1697,7 @@ private fun AppPickerDialog(
                             key = { it.uniqueId }
                         ) { app ->
                             val bitmap = remember(app.icon, isMonochrome) {
-                                app.icon?.let { com.sushanth.poplauncher.util.drawableToBitmap(it, isMonochrome) }
+                                app.icon?.let { drawableToBitmap(it, isMonochrome) }
                             }
                             Row(
                                 modifier = Modifier
@@ -1910,30 +1888,31 @@ fun isDefaultLauncher(
     context: Context
 ): Boolean {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-        val roleManager =
-            context.getSystemService(RoleManager::class.java)
-
-        if (
-            roleManager?.isRoleHeld(
-                RoleManager.ROLE_HOME
-            ) == true
-        ) {
+        val roleManager = context.getSystemService(RoleManager::class.java)
+        if (roleManager?.isRoleHeld(RoleManager.ROLE_HOME) == true) {
             return true
         }
     }
 
-    val intent = Intent(Intent.ACTION_MAIN)
-        .addCategory(Intent.CATEGORY_HOME)
+    val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+    val resolveInfo = context.packageManager.resolveActivity(
+        intent,
+        PackageManager.MATCH_DEFAULT_ONLY
+    )
+    val defaultPkg = resolveInfo?.activityInfo?.packageName
+    if (defaultPkg == context.packageName) {
+        return true
+    }
 
-    val resolveInfo =
-        context.packageManager.resolveActivity(
-            intent,
-            0
-        )
-
-    return resolveInfo
-        ?.activityInfo
-        ?.packageName == context.packageName
+    // Fallback check for older / OEM launchers
+    val filter = IntentFilter(Intent.ACTION_MAIN).apply { addCategory(Intent.CATEGORY_HOME) }
+    val filters = listOf(filter)
+    val preferredActivities = mutableListOf<ComponentName>()
+    try {
+        @Suppress("DEPRECATION")
+        context.packageManager.getPreferredActivities(filters, preferredActivities, context.packageName)
+    } catch (_: Exception) {}
+    return preferredActivities.any { it.packageName == context.packageName }
 }
 
 fun requestSetDefaultLauncher(context: Context) {
@@ -1947,13 +1926,19 @@ fun requestSetDefaultLauncher(context: Context) {
         ctx = ctx.baseContext
     }
 
+    if (activity is MainActivity) {
+        activity.requestSetDefaultLauncher()
+        return
+    }
+
+    // 1. Try RoleManager on Android 10+ (API 29+)
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         val roleManager = context.getSystemService(RoleManager::class.java)
         if (roleManager?.isRoleAvailable(RoleManager.ROLE_HOME) == true && !roleManager.isRoleHeld(RoleManager.ROLE_HOME)) {
             val intent = roleManager.createRequestRoleIntent(RoleManager.ROLE_HOME)
             try {
                 if (activity != null) {
-                    activity.startActivityForResult(intent, 0)
+                    activity.startActivity(intent)
                 } else {
                     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     context.startActivity(intent)
@@ -1963,15 +1948,62 @@ fun requestSetDefaultLauncher(context: Context) {
         }
     }
 
+    // 2. Try ACTION_HOME_SETTINGS
     try {
-        val intent = Intent(Settings.ACTION_HOME_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        context.startActivity(intent)
-    } catch (_: Exception) {
-        try {
-            val intent = Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val intent = Intent(Settings.ACTION_HOME_SETTINGS).apply {
+            if (activity == null) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        if (activity != null) {
+            activity.startActivity(intent)
+        } else {
             context.startActivity(intent)
+        }
+        return
+    } catch (_: Exception) {}
+
+    // 3. Try ACTION_MANAGE_DEFAULT_APPS_SETTINGS
+    try {
+        val intent = Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS).apply {
+            if (activity == null) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        if (activity != null) {
+            activity.startActivity(intent)
+        } else {
+            context.startActivity(intent)
+        }
+        return
+    } catch (_: Exception) {}
+
+    // 4. Try ACTION_APPLICATION_DETAILS_SETTINGS for Pop Launcher
+    try {
+        val intent = Intent(
+            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            "package:${context.packageName}".toUri()
+        ).apply {
+            if (activity == null) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        if (activity != null) {
+            activity.startActivity(intent)
+        } else {
+            context.startActivity(intent)
+        }
+        return
+    } catch (_: Exception) {}
+
+    // 5. Fallback: Trigger Home Resolver / Picker dialog
+    try {
+        val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+            addCategory(Intent.CATEGORY_HOME)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(homeIntent)
+    } catch (_: Exception) {
+        // 6. Last resort fallback: System Settings
+        try {
+            val settingsIntent = Intent(Settings.ACTION_SETTINGS).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(settingsIntent)
         } catch (_: Exception) {}
     }
 }
-
-

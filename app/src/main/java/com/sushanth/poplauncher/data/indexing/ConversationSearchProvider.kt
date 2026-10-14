@@ -1,15 +1,18 @@
 package com.sushanth.poplauncher.data.indexing
 
+import android.Manifest
 import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
 import android.content.pm.LauncherApps
+import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.os.Process
 import android.provider.ContactsContract
 import android.provider.Telephony
+import android.telephony.PhoneNumberUtils
+import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import com.sushanth.poplauncher.data.model.ConversationEntity
 import com.sushanth.poplauncher.data.model.SearchEntity
@@ -30,15 +33,15 @@ class ConversationSearchProvider(
     override suspend fun index(context: Context): List<SearchEntity> = emptyList()
 
     override suspend fun search(query: String, context: Context): List<SearchEntity> = withContext(Dispatchers.IO) {
-        // BUG FIX: Check if CONVERSATION provider is enabled before returning results
-        val isConversationEnabled = settingsRepository?.settings?.value?.enabledProviders?.contains(SearchType.CONVERSATION) ?: true
+        val settings = settingsRepository?.settings?.value
+        val isConversationEnabled = settings?.enabledProviders?.contains(SearchType.CONVERSATION) ?: true
         if (!isConversationEnabled) return@withContext emptyList()
         val trimmed = query.trim()
         if (trimmed.length < 2) return@withContext emptyList()
 
         val results = mutableListOf<ConversationEntity>()
-        val frictionPackages = settingsRepository?.settings?.value?.frictionAppPackages ?: emptySet()
-        val allowedConversationPackages = settingsRepository?.settings?.value?.conversationAppPackages
+        val frictionPackages = settings?.frictionAppPackages ?: emptySet()
+        val allowedConversationPackages = settings?.conversationAppPackages
         val queryLower = trimmed.lowercase()
 
         val defaultSmsPackage = try {
@@ -46,7 +49,6 @@ class ConversationSearchProvider(
         } catch (_: Exception) {
             "com.google.android.apps.messaging"
         }
-
 
         // 1. Query LauncherApps Conversation Shortcuts
         try {
@@ -73,16 +75,11 @@ class ConversationSearchProvider(
                     // Only match if contact name or conversation label matches the query
                     // NEVER match by package name (prevents searching "insta" from returning Instagram chats)
                     val matches = lowerLabel.startsWith(queryLower) ||
-                            lowerLabel.split("\\s+".toRegex()).any { it.startsWith(queryLower) } ||
+                            lowerLabel.split(WHITESPACE_REGEX).any { it.startsWith(queryLower) } ||
                             (queryLower.length >= 3 && lowerLabel.contains(queryLower))
 
                     if (matches) {
-                        val appName = try {
-                            val applicationInfo = context.packageManager.getApplicationInfo(pkg, 0)
-                            context.packageManager.getApplicationLabel(applicationInfo).toString()
-                        } catch (_: Exception) {
-                            pkg
-                        }
+                        val appName = PackageCheckCache.getAppLabel(context, pkg)
 
                         // Explicit intent targeting the app package to ensure zero disambiguation / chooser popups
                         val directAppIntent = (context.packageManager.getLaunchIntentForPackage(pkg) ?: Intent(Intent.ACTION_MAIN).apply {
@@ -110,8 +107,20 @@ class ConversationSearchProvider(
             }
         } catch (_: Exception) {}
 
-        // 2. Query ContactsContract for Contacts with WhatsApp, Telegram, Signal & SMS Chat Actions
-        if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_CONTACTS) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+        // 2. Query ContactsContract for Contacts with WhatsApp, Telegram & SMS Chat Actions
+        val isWhatsAppActive = !frictionPackages.contains("com.whatsapp") &&
+                (allowedConversationPackages == null || allowedConversationPackages.contains("com.whatsapp")) &&
+                PackageCheckCache.isInstalled(context, "com.whatsapp")
+        val isTelegramActive = !frictionPackages.contains("org.telegram.messenger") &&
+                (allowedConversationPackages == null || allowedConversationPackages.contains("org.telegram.messenger")) &&
+                PackageCheckCache.isInstalled(context, "org.telegram.messenger")
+        val isSmsActive = !frictionPackages.contains(defaultSmsPackage) &&
+                (allowedConversationPackages == null || allowedConversationPackages.contains(defaultSmsPackage)) &&
+                PackageCheckCache.isInstalled(context, defaultSmsPackage)
+
+        if ((isWhatsAppActive || isTelegramActive || isSmsActive) &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
+        ) {
             try {
                 val projection = arrayOf(
                     ContactsContract.CommonDataKinds.Phone.CONTACT_ID,
@@ -128,28 +137,19 @@ class ConversationSearchProvider(
                     putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} ASC")
                     putInt(ContentResolver.QUERY_ARG_LIMIT, 6)
                 }
-                val cursor = context.contentResolver.query(uri, projection, args, null)
-                cursor?.use { cursor ->
+                context.contentResolver.query(uri, projection, args, null)?.use { cursor ->
                     val nameCol = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
                     val numCol = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
-
-                    val isWhatsAppInstalled = PackageCheckCache.isInstalled(context, "com.whatsapp")
-                    val isTelegramInstalled = PackageCheckCache.isInstalled(context, "org.telegram.messenger")
-                    val isSmsInstalled = PackageCheckCache.isInstalled(context, defaultSmsPackage)
-                    val isWhatsAppAllowed = allowedConversationPackages == null || allowedConversationPackages.contains("com.whatsapp")
-                    val isTelegramAllowed = allowedConversationPackages == null || allowedConversationPackages.contains("org.telegram.messenger")
-                    val isSmsAllowed = allowedConversationPackages == null || allowedConversationPackages.contains(defaultSmsPackage)
 
                     while (cursor.moveToNext()) {
                         val name = if (nameCol >= 0) cursor.getString(nameCol) ?: "" else ""
                         val number = if (numCol >= 0) cursor.getString(numCol)?.trim() ?: "" else ""
                         if (name.isBlank() && number.isBlank()) continue
 
-                        val cleanedNum = android.telephony.PhoneNumberUtils.normalizeNumber(number)
+                        val cleanedNum = PhoneNumberUtils.normalizeNumber(number)
                         val displayName = name.ifBlank { number }
 
-                        // Direct WhatsApp chat (only if WhatsApp is installed and allowed)
-                        if (isWhatsAppInstalled && isWhatsAppAllowed && cleanedNum.length >= 7) {
+                        if (isWhatsAppActive && cleanedNum.length >= 7) {
                             results.add(
                                 ConversationEntity(
                                     id = "wa:$cleanedNum",
@@ -167,8 +167,7 @@ class ConversationSearchProvider(
                             )
                         }
 
-                        // Direct Telegram chat (only if Telegram is installed and allowed)
-                        if (isTelegramInstalled && isTelegramAllowed && cleanedNum.length >= 7) {
+                        if (isTelegramActive && cleanedNum.length >= 7) {
                             results.add(
                                 ConversationEntity(
                                     id = "tg:$cleanedNum",
@@ -186,8 +185,7 @@ class ConversationSearchProvider(
                             )
                         }
 
-                        // Direct SMS message (only if SMS app is installed and allowed)
-                        if (isSmsInstalled && isSmsAllowed && cleanedNum.isNotBlank()) {
+                        if (isSmsActive && cleanedNum.isNotBlank()) {
                             results.add(
                                 ConversationEntity(
                                     id = "sms:$cleanedNum",
@@ -209,11 +207,10 @@ class ConversationSearchProvider(
             } catch (_: Exception) {}
         }
 
+        results.distinctBy { it.id }
+    }
 
-
-
-        results
-            .filter { it.appPackage == null || !frictionPackages.contains(it.appPackage) }
-            .distinctBy { it.id }
+    companion object {
+        private val WHITESPACE_REGEX = Regex("\\s+")
     }
 }

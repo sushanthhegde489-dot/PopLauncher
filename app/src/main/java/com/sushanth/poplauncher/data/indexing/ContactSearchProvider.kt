@@ -1,22 +1,28 @@
 package com.sushanth.poplauncher.data.indexing
 
 import android.Manifest
+import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Bundle
 import android.provider.ContactsContract
 import android.provider.Telephony
+import android.telephony.PhoneNumberUtils
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import com.sushanth.poplauncher.data.model.ConversationEntity
 import com.sushanth.poplauncher.data.model.PersonEntity
 import com.sushanth.poplauncher.data.model.SearchEntity
 import com.sushanth.poplauncher.data.model.SearchType
+import com.sushanth.poplauncher.data.repository.SettingsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-class ContactSearchProvider : SearchProvider {
+class ContactSearchProvider(
+    private val settingsRepository: SettingsRepository? = null
+) : SearchProvider {
 
     override val type: SearchType = SearchType.PERSON
     override val displayName: String = "People & Contacts"
@@ -36,37 +42,7 @@ class ContactSearchProvider : SearchProvider {
         ) == PackageManager.PERMISSION_GRANTED
     }
 
-    override suspend fun index(context: Context): List<SearchEntity> = withContext(Dispatchers.IO) {
-        if (!isAvailable(context)) return@withContext emptyList()
-        val results = mutableListOf<SearchEntity>()
-        val uri = ContactsContract.Contacts.CONTENT_URI
-        val projection = arrayOf(
-            ContactsContract.Contacts._ID,
-            ContactsContract.Contacts.DISPLAY_NAME_PRIMARY
-        )
-        try {
-            context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
-                val idIdx = cursor.getColumnIndex(ContactsContract.Contacts._ID)
-                val nameIdx = cursor.getColumnIndex(ContactsContract.Contacts.DISPLAY_NAME_PRIMARY)
-                while (cursor.moveToNext() && results.size < 500) {
-                    val id = if (idIdx >= 0) cursor.getString(idIdx) ?: "" else ""
-                    val name = if (nameIdx >= 0) cursor.getString(nameIdx) ?: "Contact" else "Contact"
-                    if (id.isNotBlank()) {
-                        results.add(
-                            PersonEntity(
-                                id = "person_index:$id",
-                                title = name,
-                                source = "Contact",
-                                contactId = id,
-                                launchIntent = null
-                            )
-                        )
-                    }
-                }
-            }
-        } catch (_: Exception) {}
-        results
-    }
+    override suspend fun index(context: Context): List<SearchEntity> = emptyList()
 
     private data class RawContact(
         val contactId: String,
@@ -80,8 +56,6 @@ class ContactSearchProvider : SearchProvider {
             val trimmed = query.trim()
             if (trimmed.isEmpty() || !isAvailable(context)) return@withContext emptyList()
 
-            val searchQueries = listOf(trimmed)
-
             val contactsMap = linkedMapOf<String, RawContact>()
             val uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI
             val projection = arrayOf(
@@ -90,49 +64,55 @@ class ContactSearchProvider : SearchProvider {
                 ContactsContract.CommonDataKinds.Phone.NUMBER,
                 ContactsContract.CommonDataKinds.Phone.PHOTO_URI
             )
+            val selection = "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ? OR ${ContactsContract.CommonDataKinds.Phone.NUMBER} LIKE ?"
+            val selectionArgs = arrayOf("%$trimmed%", "%$trimmed%")
             val sortOrder = "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} ASC"
 
-            for (q in searchQueries) {
-                val selection = "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ? OR ${ContactsContract.CommonDataKinds.Phone.NUMBER} LIKE ?"
-                val selectionArgs = arrayOf("%$q%", "%$q%")
+            try {
+                val queryArgs = Bundle().apply {
+                    putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
+                    putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, selectionArgs)
+                    putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, sortOrder)
+                    putInt(ContentResolver.QUERY_ARG_LIMIT, 20)
+                }
+                context.contentResolver.query(uri, projection, queryArgs, null)?.use { cursor ->
+                    val idIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.CONTACT_ID)
+                    val nameIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+                    val numIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+                    val photoIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.PHOTO_URI)
 
-                try {
-                    context.contentResolver.query(
-                        uri,
-                        projection,
-                        selection,
-                        selectionArgs,
-                        sortOrder
-                    )?.use { cursor ->
-                        val idIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.CONTACT_ID)
-                        val nameIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
-                        val numIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
-                        val photoIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.PHOTO_URI)
+                    while (cursor.moveToNext()) {
+                        val contactId = if (idIdx >= 0) cursor.getString(idIdx) ?: "" else ""
+                        if (contactId.isBlank()) continue
+                        if (!contactsMap.containsKey(contactId) && contactsMap.size >= MAX_CONTACT_RESULTS) {
+                            continue
+                        }
+                        val name = if (nameIdx >= 0) cursor.getString(nameIdx) ?: "Contact" else "Contact"
+                        val number = if (numIdx >= 0) cursor.getString(numIdx)?.trim() ?: "" else ""
+                        val photo = if (photoIdx >= 0) cursor.getString(photoIdx) else null
 
-                        while (cursor.moveToNext() && contactsMap.size < 20) {
-                            val contactId = if (idIdx >= 0) cursor.getString(idIdx) ?: "" else ""
-                            if (contactId.isBlank()) continue
-                            val name = if (nameIdx >= 0) cursor.getString(nameIdx) ?: "Contact" else "Contact"
-                            val number = if (numIdx >= 0) cursor.getString(numIdx)?.trim() ?: "" else ""
-                            val photo = if (photoIdx >= 0) cursor.getString(photoIdx) else null
+                        val existing = contactsMap.getOrPut(contactId) {
+                            RawContact(
+                                contactId = contactId,
+                                displayName = name,
+                                photoUri = photo
+                            )
+                        }
 
-                            val existing = contactsMap.getOrPut(contactId) {
-                                RawContact(
-                                    contactId = contactId,
-                                    displayName = name,
-                                    photoUri = photo
-                                )
-                            }
-
-                            if (number.isNotBlank() && !existing.phoneNumbers.contains(number)) {
-                                existing.phoneNumbers.add(number)
-                            }
+                        if (number.isNotBlank() && !existing.phoneNumbers.contains(number)) {
+                            existing.phoneNumbers.add(number)
                         }
                     }
-                } catch (_: Exception) {
-                    // Graceful fallback
                 }
+            } catch (_: Exception) {
+                // Graceful fallback
             }
+
+            if (contactsMap.isEmpty()) return@withContext emptyList()
+
+            val settings = settingsRepository?.settings?.value
+            val frictionPackages = settings?.frictionAppPackages ?: emptySet()
+            val allowedConvPackages = settings?.conversationAppPackages
 
             val defaultSmsPackage = try {
                 Telephony.Sms.getDefaultSmsPackage(context)?.takeIf { PackageCheckCache.isInstalled(context, it) }
@@ -145,11 +125,11 @@ class ContactSearchProvider : SearchProvider {
             }
 
             val results = mutableListOf<PersonEntity>()
-            for (raw in contactsMap.values.take(5)) {
+            for (raw in contactsMap.values) {
                 try {
                     val rawNumber = raw.phoneNumbers.firstOrNull() ?: ""
                     val primaryNumber = if (rawNumber.isNotBlank()) {
-                        android.telephony.PhoneNumberUtils.normalizeNumber(rawNumber)
+                        PhoneNumberUtils.normalizeNumber(rawNumber)
                     } else ""
                     val dialIntent = if (primaryNumber.isNotBlank()) {
                         Intent(Intent.ACTION_DIAL).apply {
@@ -161,7 +141,9 @@ class ContactSearchProvider : SearchProvider {
                     val relatedConvs = mutableListOf<ConversationEntity>()
 
                     // Add native SMS conversation
-                    if (primaryNumber.isNotBlank()) {
+                    if (primaryNumber.isNotBlank() &&
+                        (defaultSmsPackage == null || (!frictionPackages.contains(defaultSmsPackage) && (allowedConvPackages == null || allowedConvPackages.contains(defaultSmsPackage))))
+                    ) {
                         val smsIntent = Intent(Intent.ACTION_SENDTO).apply {
                             data = "smsto:${Uri.encode(primaryNumber)}".toUri()
                             defaultSmsPackage?.let { setPackage(it) }
@@ -201,7 +183,14 @@ class ContactSearchProvider : SearchProvider {
                             phoneNumbers = raw.phoneNumbers,
                             launchIntent = dialIntent,
                             relatedConversations = relatedConvs
-                                .filter { it.appPackage == null || PackageCheckCache.isInstalled(context, it.appPackage) }
+                                .filter { conv ->
+                                    val pkg = conv.appPackage
+                                    pkg == null || (
+                                        !frictionPackages.contains(pkg) &&
+                                        (allowedConvPackages == null || allowedConvPackages.contains(pkg)) &&
+                                        PackageCheckCache.isInstalled(context, pkg)
+                                    )
+                                }
                                 .distinctBy { it.id },
                             searchableTerms = listOf(raw.displayName) + raw.phoneNumbers
                         )
@@ -211,4 +200,8 @@ class ContactSearchProvider : SearchProvider {
 
             results.distinctBy { it.id }
         }
+
+    companion object {
+        private const val MAX_CONTACT_RESULTS = 5
+    }
 }

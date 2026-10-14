@@ -36,26 +36,218 @@
       }
     },
     {
-      "id": "quick_shortcuts",
-      "name": "Quick Shortcuts",
-      "description": "Shortcuts to open settings, launcher controls, and apps.",
+      "id": "todo_applet",
+      "name": "To-Do Checklist",
+      "description": "Interactive Task Manager Applet",
       "version": 1,
-      "icon": "⚙️",
+      "icon": "✅",
       "definition": {
-        "id": "quick_shortcuts",
-        "title": "Quick Shortcuts",
-        "subtitle": "System & Launcher controls",
+        "id": "todo_applet",
+        "title": "To-Do Checklist",
+        "subtitle": "Interactive Task Manager Applet",
         "style": "NOTHING_MINIMAL",
-        "state": {},
+        "state": {
+          "task_input": "",
+          "items": "[\"Buy coffee\", \"Finish build\"]"
+        },
         "elements": [
           {
             "type": "row",
             "alignment": "SPACE_BETWEEN",
             "children": [
-              { "type": "button", "label": "Wi-Fi", "action": "OPEN_SETTINGS", "param": "wifi" },
-              { "type": "button", "label": "Bluetooth", "action": "OPEN_SETTINGS", "param": "bluetooth" },
-              { "type": "button", "label": "Launcher", "action": "OPEN_LAUNCHER_SETTINGS" }
+              {
+                "type": "input",
+                "placeholder": "Type new task...",
+                "targetVar": "task_input"
+              },
+              {
+                "type": "button",
+                "label": "+ Add",
+                "action": "ADD_TO_LIST",
+                "targetVar": "items",
+                "param": "{task_input}"
+              }
             ]
+          },
+          { "type": "spacer", "heightDp": 10 },
+          {
+            "type": "card",
+            "children": [
+              {
+                "type": "list",
+                "itemsVar": "items",
+                "itemTemplate": {
+                  "type": "text",
+                  "text": "• {item}",
+                  "size": "BODY",
+                  "color": "DEFAULT"
+                }
+              }
+            ]
+          },
+          { "type": "spacer", "heightDp": 8 },
+          {
+            "type": "row",
+            "alignment": "END",
+            "children": [
+              {
+                "type": "button",
+                "label": "Clear All",
+                "action": "CLEAR_LIST",
+                "targetVar": "items"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "calc_applet",
+      "name": "Mini Calculator",
+      "description": "Instant formula computer applet",
+      "version": 1,
+      "icon": "🧮",
+      "definition": {
+        "id": "calc_applet",
+        "title": "Mini Calculator",
+        "subtitle": "Instant formula computer applet",
+        "style": "NOTHING_MINIMAL",
+        "state": {
+          "val1": "12",
+          "val2": "8",
+          "result": "20"
+        },
+        "elements": [
+          {
+            "type": "card",
+            "children": [
+              {
+                "type": "text",
+                "text": "Result: {result}",
+                "size": "BIG_NUMBER",
+                "color": "ACCENT",
+                "alignment": "CENTER"
+              }
+            ]
+          },
+          { "type": "spacer", "heightDp": 12 },
+          {
+            "type": "row",
+            "alignment": "SPACE_BETWEEN",
+            "children": [
+              {
+                "type": "input",
+                "placeholder": "Value 1",
+                "targetVar": "val1"
+              },
+              {
+                "type": "input",
+                "placeholder": "Value 2",
+                "targetVar": "val2"
+              }
+            ]
+          },
+          { "type": "spacer", "heightDp": 8 },
+          {
+            "type": "row",
+            "alignment": "SPACE_BETWEEN",
+            "children": [
+              {
+                "type": "button",
+                "label": "Add (+)",
+                "action": "COMPUTE",
+                "targetVar": "result",
+                "param": "val1 + val2"
+              },
+              {
+                "type": "button",
+                "label": "Multiply (*)",
+                "action": "COMPUTE",
+                "targetVar": "result",
+                "param": "val1 * val2"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "api_weather_applet",
+      "name": "Live Weather Feed",
+      "description": "HTTPS API Mini Applet",
+      "version": 1,
+      "icon": "🌤️",
+      "definition": {
+        "id": "api_weather_applet",
+        "title": "Live Weather Feed",
+        "subtitle": "HTTPS API Mini Applet",
+        "style": "NOTHING_MINIMAL",
+        "state": {
+          "api_temp": "72°F",
+          "api_condition": "Sunny ☀️"
+        },
+        "elements": [
+          {
+            "type": "card",
+            "children": [
+              {
+                "type": "text",
+                "text": "{api_temp} • {api_condition}",
+                "size": "TITLE",
+                "color": "ACCENT",
+                "alignment": "CENTER"
+              }
+            ]
+          },
+          { "type": "spacer", "heightDp": 10 },
+          {
+            "type": "button",
+            "label": "🔄 Refresh Weather Data",
+            "action": "FETCH_API",
+            "param": "https://api.open-meteo.com/v1/forecast?latitude=37.77&longitude=-122.41&current_weather=true"
+          }
+        ]
+      }
+    },
+    {
+      "id": "notes_applet",
+      "name": "Quick Scratchpad",
+      "description": "Instant note taker with clipboard copy",
+      "version": 1,
+      "icon": "📝",
+      "definition": {
+        "id": "notes_applet",
+        "title": "Quick Scratchpad",
+        "subtitle": "Instant note taker with clipboard copy",
+        "style": "NOTHING_MINIMAL",
+        "state": {
+          "note": "Meeting at 3 PM today."
+        },
+        "elements": [
+          {
+            "type": "input",
+            "placeholder": "Write a quick note...",
+            "targetVar": "note"
+          },
+          { "type": "spacer", "heightDp": 10 },
+          {
+            "type": "card",
+            "children": [
+              {
+                "type": "text",
+                "text": "\"{note}\"",
+                "size": "BODY",
+                "font": "DOT_MATRIX",
+                "color": "MUTED"
+              }
+            ]
+          },
+          { "type": "spacer", "heightDp": 8 },
+          {
+            "type": "button",
+            "label": "📋 Copy Note to Clipboard",
+            "action": "COPY_TO_CLIPBOARD",
+            "param": "{note}"
           }
         ]
       }

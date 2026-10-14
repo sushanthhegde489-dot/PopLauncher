@@ -1,9 +1,8 @@
 package com.sushanth.poplauncher.settings
 
-import android.graphics.Bitmap
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,19 +25,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -47,8 +42,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -58,7 +51,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -68,6 +60,7 @@ import com.sushanth.poplauncher.data.repository.AppRepository
 import com.sushanth.poplauncher.data.repository.InstalledApp
 import com.sushanth.poplauncher.data.repository.SettingsRepository
 import com.sushanth.poplauncher.ui.theme.LocalIsMonochromeTheme
+import com.sushanth.poplauncher.util.drawableToBitmap
 
 @Composable
 fun AppGroupsScreen(
@@ -202,7 +195,7 @@ fun AppGroupsScreen(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp),
                         color = MaterialTheme.colorScheme.surface,
-                        border = androidx.compose.foundation.BorderStroke(
+                        border = BorderStroke(
                             width = 1.dp,
                             color = MaterialTheme.colorScheme.outlineVariant
                         ),
@@ -376,7 +369,7 @@ fun AppGroupEditorDialog(
                     items(items = filteredApps, key = { it.uniqueId }) { app ->
                         val isChecked = app.isContainedIn(selectedPackages)
                         val bitmap = remember(app.icon, isMonochrome) {
-                            app.icon?.let { com.sushanth.poplauncher.util.drawableToBitmap(it, isMonochrome) }
+                            app.icon?.let { drawableToBitmap(it, isMonochrome) }
                         }
 
                         val toggleApp = {

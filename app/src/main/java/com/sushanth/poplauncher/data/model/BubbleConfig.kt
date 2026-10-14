@@ -3,9 +3,9 @@ package com.sushanth.poplauncher.data.model
 import com.sushanth.poplauncher.ui.theme.ThemePalette
 
 enum class BubbleSpeed(val label: String, val speedMultiplier: Float) {
-    SLOW("Calm", 0.65f),
+    SLOW("Calm", 0.53f),
     NORMAL("Balanced", 1.0f),
-    FAST("Snappy", 1.45f)
+    FAST("Snappy", 1.65f)
 }
 
 enum class BubbleBehavior(val label: String) {
@@ -26,8 +26,7 @@ data class BubbleConfig(
     val behavior: BubbleBehavior = BubbleBehavior.DRIFT,
     val popDifficulty: PopDifficulty = PopDifficulty.NORMAL,
     val edgeBounce: Float = 0.92f,
-    val idleDelayMs: Long = 800L,
-    val interactionRadius: Float = 140f
+    val idleDelayMs: Long = 800L
 )
 
 data class LauncherSettings(
@@ -48,9 +47,9 @@ data class LauncherSettings(
     ),
     val caseSensitive: Boolean = false,
     val themePalette: ThemePalette = ThemePalette.DEFAULT_MAROON,
+    val previousThemePaletteId: String = ThemePalette.DEFAULT_MAROON.id,
     val customColorHex: String = "#8F425F",
     val hasCompletedOnboarding: Boolean = false,
-    val hasPromptedDefaultLauncher: Boolean = false,
     val showWallpaper: Boolean = false,
     val wallpaperDim: Float = 0.2f,
     val showClock: Boolean = true,
@@ -63,14 +62,6 @@ data class LauncherSettings(
     val gestureSwipeDown: GestureConfig = GestureConfig(actionType = GestureActionType.OPEN_SEARCH),
     val gestureSwipeUp: GestureConfig = GestureConfig(actionType = GestureActionType.NONE)
 ) {
-    val gestures: Map<GestureType, GestureConfig>
-        get() = mapOf(
-            GestureType.DOUBLE_TAP to gestureDoubleTap,
-            GestureType.TRIPLE_TAP to gestureTripleTap,
-            GestureType.SWIPE_DOWN to gestureSwipeDown,
-            GestureType.SWIPE_UP to gestureSwipeUp
-        )
-
     fun getGesture(type: GestureType): GestureConfig = when (type) {
         GestureType.DOUBLE_TAP -> gestureDoubleTap
         GestureType.TRIPLE_TAP -> gestureTripleTap

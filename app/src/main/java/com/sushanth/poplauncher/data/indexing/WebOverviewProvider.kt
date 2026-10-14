@@ -24,7 +24,7 @@ object WebOverviewProvider {
 
         // 1. If user supplied a Gemini API key in settings, prioritize direct Gemini generation
         if (!geminiApiKey.isNullOrBlank()) {
-            val geminiResult = withContext(Dispatchers.IO) { fetchFromGemini(trimmed, geminiApiKey) }
+            val geminiResult = withContext(Dispatchers.IO) { fetchFromGemini(trimmed, geminiApiKey.trim()) }
             if (!geminiResult.isNullOrBlank()) {
                 return@coroutineScope cleanText(geminiResult)
             }
@@ -42,13 +42,15 @@ object WebOverviewProvider {
     private fun fetchFromGemini(query: String, apiKey: String): String? {
         var conn: HttpURLConnection? = null
         return try {
-            val url = URI("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$apiKey").toURL()
+            val encodedKey = URLEncoder.encode(apiKey, "UTF-8")
+            val url = URI("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$encodedKey").toURL()
             conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
                 connectTimeout = 4000
                 readTimeout = 4000
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json")
+                setRequestProperty("x-goog-api-key", apiKey)
                 setRequestProperty("User-Agent", "PopLauncher/1.0")
             }
 
@@ -160,30 +162,36 @@ object WebOverviewProvider {
 
     private fun cleanText(raw: String): String {
         var t = stripHtml(raw)
-        t = t.replace(MARKDOWN_REGEX, "") // strip markdown bold/italics/headers
+        t = t.replace(MARKDOWN_REGEX, "")
         t = t.replace(PHONETIC_REGEX, "")
         t = t.replace(CITATION_REGEX, "")
         t = t.replace(WHITESPACE_REGEX, " ").trim()
 
         val sentences = t.split(SENTENCE_SPLIT_REGEX)
-        var result = ""
+        val sb = StringBuilder()
         for (s in sentences) {
-            val candidate = if (result.isEmpty()) s else "$result $s"
-            if (candidate.length <= 320) {
-                result = candidate
+            val neededLen = if (sb.isEmpty()) s.length else sb.length + 1 + s.length
+            if (neededLen <= 320) {
+                if (sb.isNotEmpty()) sb.append(' ')
+                sb.append(s)
             } else {
-                if (result.isEmpty()) {
+                if (sb.isEmpty()) {
                     val cut = s.take(300)
                     val lastSpace = cut.lastIndexOf(' ')
-                    result = if (lastSpace > 50) cut.substring(0, lastSpace) + "..." else "$cut..."
+                    if (lastSpace > 50) {
+                        sb.append(cut, 0, lastSpace).append("...")
+                    } else {
+                        sb.append(cut).append("...")
+                    }
                 }
                 break
             }
         }
 
-        if (result.isNotBlank() && !result.endsWith(".") && !result.endsWith("!") && !result.endsWith("?") && !result.endsWith("...")) {
-            result += "."
+        if (sb.isNotEmpty() && !sb.endsWith(".") && !sb.endsWith("!") && !sb.endsWith("?") && !sb.endsWith("...")) {
+            sb.append('.')
         }
+        val result = sb.toString()
         return result.ifBlank { t }
     }
 }

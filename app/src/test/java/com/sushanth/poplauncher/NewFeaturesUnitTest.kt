@@ -6,7 +6,6 @@ import com.sushanth.poplauncher.data.model.GestureType
 import com.sushanth.poplauncher.widgets.WidgetLayout
 import com.sushanth.poplauncher.widgets.WidgetManager
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NewFeaturesUnitTest {
@@ -50,7 +49,7 @@ class NewFeaturesUnitTest {
 
     @Test
     fun testGestureTypeDisplayNames() {
-        assertEquals(4, GestureType.values().size)
+        assertEquals(4, GestureType.entries.size)
         assertEquals("Double Tap", GestureType.DOUBLE_TAP.displayName)
         assertEquals("Triple Tap", GestureType.TRIPLE_TAP.displayName)
         assertEquals("Swipe Down", GestureType.SWIPE_DOWN.displayName)

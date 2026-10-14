@@ -2,6 +2,7 @@ package com.sushanth.poplauncher
 
 import com.sushanth.poplauncher.widgets.custom.CustomWidget
 import com.sushanth.poplauncher.widgets.custom.CustomWidgetRepository
+import com.sushanth.poplauncher.widgets.custom.WidgetElement
 import com.sushanth.poplauncher.widgets.custom.WidgetManifest
 import org.json.JSONArray
 import org.json.JSONObject
@@ -9,6 +10,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
+import java.io.File
 
 class CustomWidgetManifestTest {
     private fun widgetJson(id: String = "demo_widget", version: Int = 1): JSONObject = JSONObject().apply {
@@ -19,7 +21,7 @@ class CustomWidgetManifestTest {
         put("definition", CustomWidget(
             id = id,
             title = "Demo",
-            elements = listOf(com.sushanth.poplauncher.widgets.custom.WidgetElement.Text("Hello"))
+            elements = listOf(WidgetElement.Text("Hello"))
         ).toJson())
     }
 
@@ -74,7 +76,7 @@ class CustomWidgetManifestTest {
 
     @Test
     fun rejectsMissingDescription() {
-        val widget = widgetJson().remove("description")
+        val widget = widgetJson().apply { remove("description") }
         val root = JSONObject().apply { put("schemaVersion", 1); put("widgets", JSONArray().put(widget)) }
         val manifest = WidgetManifest.fromJson(root, 2)
         assertNotNull(manifest)
@@ -83,12 +85,10 @@ class CustomWidgetManifestTest {
 
     @Test
     fun parsesMalformedDataGracefully() {
-        // String expected, integer given
         val malformedWidget = widgetJson("malformed").put("name", 12345)
         val root = JSONObject().apply { put("schemaVersion", 1); put("widgets", JSONArray().put(malformedWidget)) }
         val manifest = WidgetManifest.fromJson(root, 2)
         assertNotNull(manifest)
-        // optString("name") will parse 12345 to "12345", so it succeeds, verifying no crash occurs
         assertEquals(1, manifest!!.widgets.size)
     }
 
@@ -106,8 +106,12 @@ class CustomWidgetManifestTest {
 
     @Test
     fun publishedCustomWidgetsManifestParsesSuccessfully() {
-        val file = java.io.File("C:/Users/Sushanth/AndroidStudioProjects/Custom widget + privacy policy/custom-widgets/manifest.json")
-        if (file.exists()) {
+        val candidatePaths = listOf(
+            File("src/main/assets/custom-widgets/manifest.json"),
+            File("app/src/main/assets/custom-widgets/manifest.json")
+        )
+        val file = candidatePaths.firstOrNull { it.exists() }
+        if (file != null) {
             val content = file.readText()
             val root = JSONObject(content)
             val manifest = WidgetManifest.fromJson(root, appVersionCode = 2)

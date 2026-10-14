@@ -1,7 +1,6 @@
 package com.sushanth.poplauncher.data.indexing
 
 import android.Manifest
-import android.util.Log
 import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.Context
@@ -10,6 +9,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
+import android.util.Log
 import androidx.core.content.ContextCompat
 import com.sushanth.poplauncher.MediaAccessState
 import com.sushanth.poplauncher.data.model.MediaEntity
@@ -20,7 +20,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
-import java.util.Collections
 import java.util.Locale
 
 class MediaSearchProvider(
@@ -49,47 +48,7 @@ class MediaSearchProvider(
     override suspend fun isAvailable(context: Context): Boolean =
         getAccessState(context) != MediaAccessState.DENIED
 
-    override suspend fun index(context: Context): List<SearchEntity> = withContext(Dispatchers.IO) {
-        if (!isAvailable(context)) return@withContext emptyList()
-        val results = mutableListOf<SearchEntity>()
-        try {
-            context.contentResolver.query(
-                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                arrayOf(MediaStore.Images.Media._ID, MediaStore.Images.Media.DISPLAY_NAME),
-                null, null, null
-            )?.use { cursor ->
-                val idIdx = cursor.getColumnIndex(MediaStore.Images.Media._ID)
-                val nameIdx = cursor.getColumnIndex(MediaStore.Images.Media.DISPLAY_NAME)
-                while (cursor.moveToNext() && results.size < 500) {
-                    val id = if (idIdx >= 0) cursor.getLong(idIdx) else 0L
-                    val name = if (nameIdx >= 0) cursor.getString(nameIdx) ?: "Photo" else "Photo"
-                    results.add(MediaEntity(id = "media_index:img:$id", title = name, source = "Photos", launchIntent = null))
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("PopLauncher", "MediaSearchProvider.index photos failed: ${e.message}", e)
-        }
-
-        try {
-            context.contentResolver.query(
-                MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
-                arrayOf(MediaStore.Video.Media._ID, MediaStore.Video.Media.DISPLAY_NAME),
-                null, null, null
-            )?.use { cursor ->
-                val idIdx = cursor.getColumnIndex(MediaStore.Video.Media._ID)
-                val nameIdx = cursor.getColumnIndex(MediaStore.Video.Media.DISPLAY_NAME)
-                while (cursor.moveToNext() && results.size < 1000) {
-                    val id = if (idIdx >= 0) cursor.getLong(idIdx) else 0L
-                    val name = if (nameIdx >= 0) cursor.getString(nameIdx) ?: "Video" else "Video"
-                    results.add(MediaEntity(id = "media_index:vid:$id", title = name, source = "Videos", isVideo = true, launchIntent = null))
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("PopLauncher", "MediaSearchProvider.index videos failed: ${e.message}", e)
-        }
-
-        results
-    }
+    override suspend fun index(context: Context): List<SearchEntity> = emptyList()
 
     override suspend fun search(query: String, context: Context): List<SearchEntity> =
         withContext(Dispatchers.IO) {
@@ -99,14 +58,10 @@ class MediaSearchProvider(
             val isMediaEnabled = settingsRepository?.settings?.value?.enabledProviders?.contains(SearchType.MEDIA) ?: true
             if (!isMediaEnabled) return@withContext emptyList()
 
-            val photoResults = Collections.synchronizedList(mutableListOf<MediaEntity>())
-            val videoResults = Collections.synchronizedList(mutableListOf<MediaEntity>())
-
-            coroutineScope {
-                val photoJob = async { queryPhotos(context, trimmed, photoResults) }
-                val videoJob = async { queryVideos(context, trimmed, videoResults) }
-                photoJob.await()
-                videoJob.await()
+            val (photoResults, videoResults) = coroutineScope {
+                val photoJob = async { queryPhotos(context, trimmed) }
+                val videoJob = async { queryVideos(context, trimmed) }
+                Pair(photoJob.await(), videoJob.await())
             }
 
             // Combine and sort results by dateAdded descending
@@ -115,39 +70,18 @@ class MediaSearchProvider(
                 .take(20)
         }
 
-    private fun queryPhotos(context: Context, query: String, photoResults: MutableList<MediaEntity>) {
+    private fun queryPhotos(context: Context, query: String): List<MediaEntity> {
+        val photoResults = ArrayList<MediaEntity>(15)
         val imageUri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
         val projection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            arrayOf(
-                MediaStore.Images.Media._ID,
-                MediaStore.Images.Media.DISPLAY_NAME,
-                MediaStore.Images.Media.MIME_TYPE,
-                MediaStore.Images.Media.SIZE,
-                MediaStore.Images.Media.BUCKET_DISPLAY_NAME,
-                MediaStore.Images.Media.DATE_ADDED,
-                MediaStore.Images.Media.RELATIVE_PATH
-            )
+            IMAGE_PROJECTION_Q
         } else {
-            arrayOf(
-                MediaStore.Images.Media._ID,
-                MediaStore.Images.Media.DISPLAY_NAME,
-                MediaStore.Images.Media.MIME_TYPE,
-                MediaStore.Images.Media.SIZE,
-                MediaStore.Images.Media.BUCKET_DISPLAY_NAME,
-                MediaStore.Images.Media.DATE_ADDED,
-                MediaStore.Images.Media.DATA
-            )
+            IMAGE_PROJECTION_LEGACY
         }
 
         val lowerQuery = query.lowercase()
-        val isGenericPhotoKeyword = lowerQuery in setOf(
-            "photo", "photos", "image", "images", "pic", "pics", "picture", "pictures",
-            "camera", "dcim", "gallery", "screenshot", "screenshots", "media",
-            "img", "jpg", "jpeg", "png", "webp", "gif", "dng", "raw",
-            "wallpaper", "wallpapers", "snap", "snaps", "ss", "shot"
-        )
-
-        val tokens = query.split("\\s+".toRegex()).filter { it.isNotBlank() }
+        val isGenericPhotoKeyword = lowerQuery in GENERIC_PHOTO_KEYWORDS
+        val tokens = query.split(WHITESPACE_REGEX).filter { it.isNotBlank() }
 
         val (selection, selectionArgs) = if (isGenericPhotoKeyword || tokens.isEmpty()) {
             Pair(null, null)
@@ -158,8 +92,8 @@ class MediaSearchProvider(
                 MediaStore.Images.Media.DATA
             }
 
-            val tokenClauses = mutableListOf<String>()
-            val argsList = mutableListOf<String>()
+            val tokenClauses = ArrayList<String>(tokens.size)
+            val argsList = ArrayList<String>(tokens.size * 3)
 
             for (token in tokens) {
                 val likeToken = "%$token%"
@@ -181,8 +115,7 @@ class MediaSearchProvider(
                 putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, sortOrder)
                 putInt(ContentResolver.QUERY_ARG_LIMIT, 15)
             }
-            val cursor = context.contentResolver.query(imageUri, projection, queryArgs, null)
-            cursor?.use { cursor ->
+            context.contentResolver.query(imageUri, projection, queryArgs, null)?.use { cursor ->
                 val idIdx = cursor.getColumnIndex(MediaStore.Images.Media._ID)
                 val nameIdx = cursor.getColumnIndex(MediaStore.Images.Media.DISPLAY_NAME)
                 val mimeIdx = cursor.getColumnIndex(MediaStore.Images.Media.MIME_TYPE)
@@ -206,8 +139,11 @@ class MediaSearchProvider(
 
                     val albumLabel = bucket ?: "Photos"
                     val formattedSize = formatFileSize(size)
-                    val subtitle = listOfNotNull(albumLabel, "Photo", formattedSize.takeIf { it.isNotBlank() })
-                        .joinToString(" • ")
+                    val subtitle = if (formattedSize.isNotBlank()) {
+                        "$albumLabel • Photo • $formattedSize"
+                    } else {
+                        "$albumLabel • Photo"
+                    }
 
                     photoResults.add(
                         MediaEntity(
@@ -223,47 +159,25 @@ class MediaSearchProvider(
                         )
                     )
                 }
-                Log.d("PopLauncher", "MediaSearchProvider found ${photoResults.size} photos for query: $query")
-            } ?: Log.e("PopLauncher", "MediaSearchProvider cursor is null for query: $query")
+            }
         } catch (e: Exception) {
-            Log.e("PopLauncher", "MediaSearchProvider exception: ${e.message}", e)
+            Log.e("PopLauncher", "MediaSearchProvider photo query exception: ${e.message}", e)
         }
+        return photoResults
     }
 
-    private fun queryVideos(context: Context, query: String, videoResults: MutableList<MediaEntity>) {
+    private fun queryVideos(context: Context, query: String): List<MediaEntity> {
+        val videoResults = ArrayList<MediaEntity>(15)
         val videoUri = MediaStore.Video.Media.EXTERNAL_CONTENT_URI
         val projection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            arrayOf(
-                MediaStore.Video.Media._ID,
-                MediaStore.Video.Media.DISPLAY_NAME,
-                MediaStore.Video.Media.MIME_TYPE,
-                MediaStore.Video.Media.SIZE,
-                MediaStore.Video.Media.DURATION,
-                MediaStore.Video.Media.BUCKET_DISPLAY_NAME,
-                MediaStore.Video.Media.DATE_ADDED,
-                MediaStore.Video.Media.RELATIVE_PATH
-            )
+            VIDEO_PROJECTION_Q
         } else {
-            arrayOf(
-                MediaStore.Video.Media._ID,
-                MediaStore.Video.Media.DISPLAY_NAME,
-                MediaStore.Video.Media.MIME_TYPE,
-                MediaStore.Video.Media.SIZE,
-                MediaStore.Video.Media.DURATION,
-                MediaStore.Video.Media.BUCKET_DISPLAY_NAME,
-                MediaStore.Video.Media.DATE_ADDED,
-                MediaStore.Video.Media.DATA
-            )
+            VIDEO_PROJECTION_LEGACY
         }
 
         val lowerQuery = query.lowercase()
-        val isGenericVideoKeyword = lowerQuery in setOf(
-            "video", "videos", "movie", "movies", "clip", "clips", "media",
-            "mp4", "mkv", "vid", "vids", "mov", "avi", "3gp", "webm",
-            "recording", "recordings"
-        )
-
-        val tokens = query.split("\\s+".toRegex()).filter { it.isNotBlank() }
+        val isGenericVideoKeyword = lowerQuery in GENERIC_VIDEO_KEYWORDS
+        val tokens = query.split(WHITESPACE_REGEX).filter { it.isNotBlank() }
 
         val (selection, selectionArgs) = if (isGenericVideoKeyword || tokens.isEmpty()) {
             Pair(null, null)
@@ -274,8 +188,8 @@ class MediaSearchProvider(
                 MediaStore.Video.Media.DATA
             }
 
-            val tokenClauses = mutableListOf<String>()
-            val argsList = mutableListOf<String>()
+            val tokenClauses = ArrayList<String>(tokens.size)
+            val argsList = ArrayList<String>(tokens.size * 3)
 
             for (token in tokens) {
                 val likeToken = "%$token%"
@@ -291,24 +205,13 @@ class MediaSearchProvider(
         val sortOrder = "${MediaStore.Video.Media.DATE_ADDED} DESC"
 
         try {
-            val cursor = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val queryArgs = Bundle().apply {
-                    putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
-                    putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, selectionArgs)
-                    putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, sortOrder)
-                    putInt(ContentResolver.QUERY_ARG_LIMIT, 15)
-                }
-                context.contentResolver.query(videoUri, projection, queryArgs, null)
-            } else {
-                context.contentResolver.query(
-                    videoUri,
-                    projection,
-                    selection,
-                    selectionArgs,
-                    "$sortOrder LIMIT 15"
-                )
+            val queryArgs = Bundle().apply {
+                putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
+                putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, selectionArgs)
+                putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, sortOrder)
+                putInt(ContentResolver.QUERY_ARG_LIMIT, 15)
             }
-            cursor?.use { cursor ->
+            context.contentResolver.query(videoUri, projection, queryArgs, null)?.use { cursor ->
                 val idIdx = cursor.getColumnIndex(MediaStore.Video.Media._ID)
                 val nameIdx = cursor.getColumnIndex(MediaStore.Video.Media.DISPLAY_NAME)
                 val mimeIdx = cursor.getColumnIndex(MediaStore.Video.Media.MIME_TYPE)
@@ -335,8 +238,12 @@ class MediaSearchProvider(
                     val albumLabel = bucket ?: "Videos"
                     val formattedDuration = formatDuration(durationMs)
                     val formattedSize = formatFileSize(size)
-                    val subtitle = listOfNotNull(albumLabel, "Video", formattedDuration.takeIf { it.isNotBlank() }, formattedSize.takeIf { it.isNotBlank() })
-                        .joinToString(" • ")
+                    val subtitle = listOfNotNull(
+                        albumLabel,
+                        "Video",
+                        formattedDuration.takeIf { it.isNotBlank() },
+                        formattedSize.takeIf { it.isNotBlank() }
+                    ).joinToString(" • ")
 
                     videoResults.add(
                         MediaEntity(
@@ -356,14 +263,15 @@ class MediaSearchProvider(
         } catch (e: Exception) {
             Log.e("PopLauncher", "MediaSearchProvider video query exception: ${e.message}", e)
         }
+        return videoResults
     }
 
     internal fun formatFileSize(size: Long): String {
         if (size <= 0) return ""
         return when {
-            size >= 1024 * 1024 * 1024 -> String.format(Locale.US, "%.1f GB", size / (1024.0 * 1024.0 * 1024.0))
-            size >= 1024 * 1024 -> String.format(Locale.US, "%.1f MB", size / (1024.0 * 1024.0))
-            size >= 1024 -> String.format(Locale.US, "%.1f KB", size / 1024.0)
+            size >= 1024L * 1024L * 1024L -> String.format(Locale.US, "%.1f GB", size / (1024.0 * 1024.0 * 1024.0))
+            size >= 1024L * 1024L -> String.format(Locale.US, "%.1f MB", size / (1024.0 * 1024.0))
+            size >= 1024L -> String.format(Locale.US, "%.1f KB", size / 1024.0)
             else -> "$size B"
         }
     }
@@ -378,5 +286,64 @@ class MediaSearchProvider(
         } else {
             String.format(Locale.US, "%d:%02d", minutes, seconds)
         }
+    }
+
+    private companion object {
+        val WHITESPACE_REGEX = Regex("\\s+")
+
+        val GENERIC_PHOTO_KEYWORDS = setOf(
+            "photo", "photos", "image", "images", "pic", "pics", "picture", "pictures",
+            "camera", "dcim", "gallery", "screenshot", "screenshots", "media",
+            "img", "jpg", "jpeg", "png", "webp", "gif", "dng", "raw",
+            "wallpaper", "wallpapers", "snap", "snaps", "ss", "shot"
+        )
+
+        val GENERIC_VIDEO_KEYWORDS = setOf(
+            "video", "videos", "movie", "movies", "clip", "clips", "media",
+            "mp4", "mkv", "vid", "vids", "mov", "avi", "3gp", "webm",
+            "recording", "recordings"
+        )
+
+        val IMAGE_PROJECTION_Q = arrayOf(
+            MediaStore.Images.Media._ID,
+            MediaStore.Images.Media.DISPLAY_NAME,
+            MediaStore.Images.Media.MIME_TYPE,
+            MediaStore.Images.Media.SIZE,
+            MediaStore.Images.Media.BUCKET_DISPLAY_NAME,
+            MediaStore.Images.Media.DATE_ADDED,
+            MediaStore.Images.Media.RELATIVE_PATH
+        )
+
+        val IMAGE_PROJECTION_LEGACY = arrayOf(
+            MediaStore.Images.Media._ID,
+            MediaStore.Images.Media.DISPLAY_NAME,
+            MediaStore.Images.Media.MIME_TYPE,
+            MediaStore.Images.Media.SIZE,
+            MediaStore.Images.Media.BUCKET_DISPLAY_NAME,
+            MediaStore.Images.Media.DATE_ADDED,
+            MediaStore.Images.Media.DATA
+        )
+
+        val VIDEO_PROJECTION_Q = arrayOf(
+            MediaStore.Video.Media._ID,
+            MediaStore.Video.Media.DISPLAY_NAME,
+            MediaStore.Video.Media.MIME_TYPE,
+            MediaStore.Video.Media.SIZE,
+            MediaStore.Video.Media.DURATION,
+            MediaStore.Video.Media.BUCKET_DISPLAY_NAME,
+            MediaStore.Video.Media.DATE_ADDED,
+            MediaStore.Video.Media.RELATIVE_PATH
+        )
+
+        val VIDEO_PROJECTION_LEGACY = arrayOf(
+            MediaStore.Video.Media._ID,
+            MediaStore.Video.Media.DISPLAY_NAME,
+            MediaStore.Video.Media.MIME_TYPE,
+            MediaStore.Video.Media.SIZE,
+            MediaStore.Video.Media.DURATION,
+            MediaStore.Video.Media.BUCKET_DISPLAY_NAME,
+            MediaStore.Video.Media.DATE_ADDED,
+            MediaStore.Video.Media.DATA
+        )
     }
 }

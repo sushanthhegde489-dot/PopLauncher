@@ -13,22 +13,31 @@ import com.sushanth.poplauncher.data.indexing.MediaSearchProvider
 import com.sushanth.poplauncher.data.indexing.SearchProvider
 import com.sushanth.poplauncher.data.indexing.SettingsShortcutSearchProvider
 import com.sushanth.poplauncher.data.indexing.WebOverviewProvider
-import com.sushanth.poplauncher.data.model.*
+import com.sushanth.poplauncher.data.model.AppEntity
+import com.sushanth.poplauncher.data.model.AppGroupEntity
+import com.sushanth.poplauncher.data.model.ConversationEntity
+import com.sushanth.poplauncher.data.model.DeepSearchEntity
+import com.sushanth.poplauncher.data.model.FileEntity
+import com.sushanth.poplauncher.data.model.MediaEntity
+import com.sushanth.poplauncher.data.model.PersonEntity
+import com.sushanth.poplauncher.data.model.SearchEntity
+import com.sushanth.poplauncher.data.model.SearchType
+import com.sushanth.poplauncher.data.model.WebOverviewEntity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicLong
-
 
 data class ProviderDiagnostic(
     val providerType: SearchType,
@@ -47,27 +56,20 @@ data class SearchResultState(
     val providerErrors: List<String> = emptyList(),
 )
 
-data class IndexingStatusState(
-    val isIndexing: Boolean = false,
-    val progress: Float = 1.0f,
-    val totalIndexedItems: Int = 0,
-    val countsCategoryMap: Map<String, Int> = emptyMap(),
-    val lastIndexTimestamp: Long = System.currentTimeMillis()
-)
-
 class SearchRepository(
-    private val context: Context,
+    context: Context,
     private val appRepository: AppRepository,
     private val settingsRepository: SettingsRepository,
     private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob()),
-    val searchIndexRepository: SearchIndexRepository = SearchIndexRepository(context, coroutineScope)
+    val searchIndexRepository: SearchIndexRepository = SearchIndexRepository(context.applicationContext, coroutineScope)
 ) {
+    private val appContext: Context = context.applicationContext
     private val settingsShortcutProvider = SettingsShortcutSearchProvider()
 
     private val nonAppProviders: List<SearchProvider> = listOf(
         settingsShortcutProvider,
         ConversationSearchProvider(settingsRepository),
-        ContactSearchProvider(),
+        ContactSearchProvider(settingsRepository),
         FileSearchProvider(),
         MediaSearchProvider(settingsRepository)
     )
@@ -75,23 +77,18 @@ class SearchRepository(
     private val _searchState = MutableStateFlow(SearchResultState())
     val searchState: StateFlow<SearchResultState> = _searchState.asStateFlow()
 
-    private val _indexingStatus = MutableStateFlow(IndexingStatusState())
-    val indexingStatus: StateFlow<IndexingStatusState> = _indexingStatus.asStateFlow()
-
     private var currentOverviewJob: Job? = null
     private val searchGeneration = AtomicLong(0L)
 
     init {
-        coroutineScope.launch {
-            refreshFullIndex()
-        }
         // Provider switches must take effect immediately for the current query.
-        // Previously the setting changed visually, but existing results stayed on screen
-        // until the user edited the query again.
         coroutineScope.launch {
             settingsRepository.settings
                 .distinctUntilChanged { old, new ->
-                    (old.enabledProviders == new.enabledProviders) && (old.caseSensitive == new.caseSensitive)
+                    (old.enabledProviders == new.enabledProviders) &&
+                        (old.caseSensitive == new.caseSensitive) &&
+                        (old.frictionAppPackages == new.frictionAppPackages) &&
+                        (old.hiddenAppPackages == new.hiddenAppPackages)
                 }
                 .collect {
                     val currentQuery = _searchState.value.query
@@ -103,9 +100,7 @@ class SearchRepository(
     }
 
     fun triggerReindex() {
-        coroutineScope.launch {
-            refreshFullIndex()
-        }
+        refreshCurrentQuery()
     }
 
     /** Re-runs the visible query, e.g. after a permission was granted in system settings. */
@@ -115,11 +110,6 @@ class SearchRepository(
         coroutineScope.launch { search(currentQuery) }
     }
 
-    /**
-     * Called to throttle reindexing to at most once every 6 hours.
-     * The timestamp lives here so it survives Activity recreation on
-     * configuration changes and back-stack navigation.
-     */
     @Volatile private var lastIndexTimestamp: Long = 0L
     private val reindexIntervalMs: Long = 6 * 60 * 60 * 1_000L // 6 hours
 
@@ -127,50 +117,13 @@ class SearchRepository(
         val now = System.currentTimeMillis()
         if (now - lastIndexTimestamp >= reindexIntervalMs) {
             lastIndexTimestamp = now
-            triggerReindex()
+            refreshCurrentQuery()
         }
     }
 
-    suspend fun refreshFullIndex() = withContext(Dispatchers.IO) {
-        _indexingStatus.value = _indexingStatus.value.copy(isIndexing = true, progress = 0.05f)
-        try {
-            val categoryCounts = mutableMapOf<String, Int>()
-
-            // 1. Installed Apps & System Settings
-            _indexingStatus.value = _indexingStatus.value.copy(progress = 0.25f)
-            val installedAppsCount = appRepository.installedApps.value.size
-            val settingsShortcutsCount = settingsShortcutProvider.index(context).size
-            categoryCounts["Apps & Settings"] = installedAppsCount + settingsShortcutsCount
-
-            // 2. Contacts & People
-            _indexingStatus.value = _indexingStatus.value.copy(progress = 0.50f)
-            val contactProvider = nonAppProviders.firstOrNull { it is ContactSearchProvider }
-            val contactsCount = contactProvider?.index(context)?.size ?: 0
-            categoryCounts["Contacts & People"] = contactsCount
-
-            // 3. Local Files & Documents
-            _indexingStatus.value = _indexingStatus.value.copy(progress = 0.75f)
-            val fileProvider = nonAppProviders.firstOrNull { it is FileSearchProvider }
-            val filesCount = fileProvider?.index(context)?.size ?: 0
-            categoryCounts["Files & Documents"] = filesCount
-
-            // 4. Photos & Media
-            _indexingStatus.value = _indexingStatus.value.copy(progress = 0.95f)
-            val mediaProvider = nonAppProviders.firstOrNull { it is MediaSearchProvider }
-            val mediaCount = mediaProvider?.index(context)?.size ?: 0
-            categoryCounts["Photos & Videos"] = mediaCount
-
-            val totalCount = categoryCounts.values.sum()
-            _indexingStatus.value = IndexingStatusState(
-                isIndexing = false,
-                progress = 1.0f,
-                totalIndexedItems = totalCount,
-                countsCategoryMap = categoryCounts,
-                lastIndexTimestamp = System.currentTimeMillis()
-            )
-        } catch (_: Exception) {
-            _indexingStatus.value = _indexingStatus.value.copy(isIndexing = false, progress = 1.0f)
-        }
+    fun close() {
+        currentOverviewJob?.cancel()
+        coroutineScope.cancel()
     }
 
     suspend fun search(rawQuery: String) = withContext(Dispatchers.IO) {
@@ -223,10 +176,11 @@ class SearchRepository(
                 }
 
                 val matchingGroups = if (settings.enabledProviders.contains(SearchType.APP)) {
-                    val q = if (caseSensitive) query.trim() else query.trim().lowercase()
+                    val q = if (caseSensitive) query else query.lowercase()
+                    val lowerQ = query.lowercase()
                     settings.appGroups.asSequence().filter { group ->
                         val gName = if (caseSensitive) group.name else group.name.lowercase()
-                        gName.contains(q) || (q.length >= 3 && ("group".startsWith(q) || "folder".startsWith(q) || "category".startsWith(q)))
+                        gName.contains(q) || (lowerQ.length >= 3 && ("group".startsWith(lowerQ) || "folder".startsWith(lowerQ) || "category".startsWith(lowerQ)))
                     }.map { group ->
                         AppGroupEntity(
                             id = "group:${group.id}",
@@ -249,7 +203,7 @@ class SearchRepository(
                     .map { provider ->
                         async {
                             val available = try {
-                                provider.isAvailable(context)
+                                provider.isAvailable(appContext)
                             } catch (t: Throwable) {
                                 Log.w("PopLauncher", "Error checking availability for ${provider.type}: ${t.message}", t)
                                 false
@@ -269,7 +223,7 @@ class SearchRepository(
                                 )
                             }
                             try {
-                                val results = provider.search(query, context)
+                                val results = provider.search(query, appContext)
                                 Pair(
                                     ProviderDiagnostic(
                                         providerType = provider.type,
@@ -316,7 +270,7 @@ class SearchRepository(
                         else -> true
                     }
                 }.distinctBy { it.id }.filter { it.title.isNotBlank() }
-                
+
                 val sortedApps = appCandidates.sortedWith(
                     compareBy<SearchEntity> { getPriorityOrder(it) }
                         .thenByDescending { affinityScores[it.id] ?: 0 }
@@ -332,18 +286,13 @@ class SearchRepository(
 
         if (generation != searchGeneration.get()) return@withContext
 
-        // Fast in-memory package verification without Binder IPC calls
-        fun isPackageInstalled(pkg: String?): Boolean {
-            return appRepository.isPackageInstalled(pkg)
-        }
-
         val filteredCandidateResults = (appResultsPair + otherResults)
             .filter { entity ->
                 // Guarantee: Never give search results for apps that do not exist on the user's phone
                 when (entity) {
-                    is AppEntity -> isPackageInstalled(entity.packageName)
-                    is ConversationEntity -> entity.appPackage == null || isPackageInstalled(entity.appPackage)
-                    is DeepSearchEntity -> entity.id.startsWith("system:") || isPackageInstalled(entity.appPackage)
+                    is AppEntity -> appRepository.isPackageInstalled(entity.packageName)
+                    is ConversationEntity -> entity.appPackage == null || appRepository.isPackageInstalled(entity.appPackage)
+                    is DeepSearchEntity -> entity.id.startsWith("system:") || appRepository.isPackageInstalled(entity.appPackage)
                     is AppGroupEntity -> true
                     else -> true
                 }
@@ -372,7 +321,7 @@ class SearchRepository(
             val browserIntent = Intent(Intent.ACTION_VIEW, searchUrl.toUri()).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            val deepSearchOptions = DeepAppSearchProvider.getDeepSearchOptions(query, context)
+            val deepSearchOptions = DeepAppSearchProvider.getDeepSearchOptions(query, appContext)
             WebOverviewEntity(
                 query = query,
                 title = "AI Overview for \"$query\"",
@@ -420,14 +369,14 @@ class SearchRepository(
                     query = query,
                     geminiApiKey = settings.geminiApiKey
                 )
-                val currentState = _searchState.value
-                if (generation == searchGeneration.get() && currentState.query == query && currentState.webOverview != null) {
-                    val updatedOverview = currentState.webOverview.copy(
+                val latestState = _searchState.value
+                if (generation == searchGeneration.get() && latestState.query == query && latestState.webOverview != null) {
+                    val updatedOverview = latestState.webOverview.copy(
                         summaryText = summary,
                         isLoading = false,
                         isLiveWeb = summary != null
                     )
-                    _searchState.value = currentState.copy(webOverview = updatedOverview)
+                    _searchState.value = latestState.copy(webOverview = updatedOverview)
                 }
             }
         }
@@ -479,8 +428,7 @@ class SearchRepository(
         }
         return when (entity) {
             is AppEntity, is DeepSearchEntity, is AppGroupEntity -> 1
-            is PersonEntity, is CallEntity -> 2
-            is MessageEntity -> 3
+            is PersonEntity -> 2
             is ConversationEntity -> 4
             is MediaEntity, is FileEntity -> 5
             else -> 6

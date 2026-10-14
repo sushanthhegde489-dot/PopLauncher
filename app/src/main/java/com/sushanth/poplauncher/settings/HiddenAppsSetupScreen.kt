@@ -1,7 +1,5 @@
 package com.sushanth.poplauncher.settings
 
-import android.graphics.Bitmap
-import android.graphics.drawable.Drawable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -31,9 +29,11 @@ import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -57,6 +57,8 @@ import androidx.compose.ui.unit.sp
 import com.sushanth.poplauncher.data.repository.AppRepository
 import com.sushanth.poplauncher.data.repository.InstalledApp
 import com.sushanth.poplauncher.data.repository.SettingsRepository
+import com.sushanth.poplauncher.ui.theme.LocalIsMonochromeTheme
+import com.sushanth.poplauncher.util.drawableToBitmap
 
 @Composable
 fun HiddenAppsSetupScreen(
@@ -67,7 +69,7 @@ fun HiddenAppsSetupScreen(
     val apps by appRepository.installedApps.collectAsState()
     val settings by settingsRepository.settings.collectAsState()
     val hiddenPackages = settings.hiddenAppPackages
-    val isMonochrome = com.sushanth.poplauncher.ui.theme.LocalIsMonochromeTheme.current
+    val isMonochrome = LocalIsMonochromeTheme.current
 
     var filterQuery by remember { mutableStateOf("") }
 
@@ -196,91 +198,132 @@ fun HiddenAppsSetupScreen(
             }
         }
     ) { innerPadding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .navigationBarsPadding(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items(
-                items = filteredApps,
-                key = { it.uniqueId }
-            ) { app ->
-                val isHidden = app.isContainedIn(hiddenPackages)
-                val bitmap = remember(app.icon, isMonochrome) {
-                    app.icon?.let { com.sushanth.poplauncher.util.drawableToBitmap(it, isMonochrome) }
-                }
-
-                val toggleApp = {
-                    val newHidden = if (isHidden) {
-                        hiddenPackages.filterNot { app.matchesIdentifier(it) }.toSet()
-                    } else {
-                        hiddenPackages + app.uniqueId
-                    }
-                    settingsRepository.setHiddenApps(newHidden)
-                }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(
-                            if (isHidden) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
-                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                        )
-                        .border(
-                            width = if (isHidden) 1.dp else 0.dp,
-                            color = if (isHidden) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else Color.Transparent,
-                            shape = RoundedCornerShape(16.dp)
-                        )
-                        .clickable { toggleApp() }
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
+        if (apps.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(
+                    color = MaterialTheme.colorScheme.primary,
+                    strokeWidth = 2.5.dp
+                )
+            }
+        } else if (filteredApps.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .padding(32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    if (bitmap != null && !bitmap.isRecycled) {
-                        Image(
-                            bitmap = bitmap.asImageBitmap(),
-                            contentDescription = app.label,
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                        )
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.surfaceVariant)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(14.dp))
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = app.label,
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = if (app.isClone) "Dual / Cloned Application" else "Installed Application",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (app.isClone) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1
-                        )
-                    }
-
-                    Switch(
-                        checked = isHidden,
-                        onCheckedChange = { toggleApp() },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = MaterialTheme.colorScheme.primary,
-                            checkedTrackColor = MaterialTheme.colorScheme.primaryContainer
-                        )
+                    Text(
+                        text = if (filterQuery.isNotBlank()) "No applications found matching \"$filterQuery\"" else "No applications installed",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 14.sp
                     )
+                    if (filterQuery.isNotBlank()) {
+                        OutlinedButton(
+                            onClick = { filterQuery = "" },
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("Clear search", fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .navigationBarsPadding(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(
+                    items = filteredApps,
+                    key = { it.uniqueId }
+                ) { app ->
+                    val isHidden = app.isContainedIn(hiddenPackages)
+                    val bitmap = remember(app.icon, isMonochrome) {
+                        app.icon?.let { drawableToBitmap(it, isMonochrome) }
+                    }
+
+                    val toggleApp = {
+                        val newHidden = if (isHidden) {
+                            hiddenPackages.filterNot { app.matchesIdentifier(it) }.toSet()
+                        } else {
+                            hiddenPackages + app.uniqueId
+                        }
+                        settingsRepository.setHiddenApps(newHidden)
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(
+                                if (isHidden) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                            )
+                            .border(
+                                width = if (isHidden) 1.dp else 0.dp,
+                                color = if (isHidden) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else Color.Transparent,
+                                shape = RoundedCornerShape(16.dp)
+                            )
+                            .clickable { toggleApp() }
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (bitmap != null && !bitmap.isRecycled) {
+                            Image(
+                                bitmap = bitmap.asImageBitmap(),
+                                contentDescription = app.label,
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(14.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = app.label,
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = if (app.isClone) "Dual / Cloned Application" else "Installed Application",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (app.isClone) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1
+                            )
+                        }
+
+                        Switch(
+                            checked = isHidden,
+                            onCheckedChange = { toggleApp() },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = MaterialTheme.colorScheme.primary,
+                                checkedTrackColor = MaterialTheme.colorScheme.primaryContainer
+                            )
+                        )
+                    }
                 }
             }
         }

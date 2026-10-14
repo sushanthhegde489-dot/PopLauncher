@@ -1,6 +1,7 @@
 package com.sushanth.poplauncher.search
 
 import android.graphics.drawable.Drawable
+import android.os.UserHandle
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -46,7 +47,7 @@ fun SearchResultsList(
     hasActiveBubble: Boolean,
     query: String,
     onEntityClick: (SearchEntity) -> Unit,
-    getAppIcon: (String) -> Drawable?,
+    getAppIcon: (String, UserHandle?) -> Drawable?,
     modifier: Modifier = Modifier,
     providerErrors: List<String> = emptyList()
 ) {
@@ -97,6 +98,8 @@ fun SearchResultsList(
         return
     }
 
+    val packageOnlyIconLookup: (String) -> Drawable? = { pkg -> getAppIcon(pkg, null) }
+
     LazyColumn(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -120,7 +123,7 @@ fun SearchResultsList(
                 SearchResultItem(
                     entity = webOverview,
                     appIcon = null,
-                    getAppIcon = getAppIcon,
+                    getAppIcon = packageOnlyIconLookup,
                     onClick = { onEntityClick(webOverview) },
                     onSubActionClick = { onEntityClick(it) }
                 )
@@ -131,16 +134,15 @@ fun SearchResultsList(
             items = results,
             key = { it.id }
         ) { entity ->
-            val iconPackage = when (entity) {
-                is AppEntity -> entity.packageName
-                is ConversationEntity -> entity.appPackage
+            val icon = when (entity) {
+                is AppEntity -> getAppIcon(entity.packageName, entity.userHandle)
+                is ConversationEntity -> entity.appPackage?.let { getAppIcon(it, null) }
                 else -> null
             }
-            val icon = iconPackage?.let { getAppIcon(it) }
             SearchResultItem(
                 entity = entity,
                 appIcon = icon,
-                getAppIcon = getAppIcon,
+                getAppIcon = packageOnlyIconLookup,
                 onClick = { onEntityClick(entity) },
                 onSubActionClick = { onEntityClick(it) }
             )

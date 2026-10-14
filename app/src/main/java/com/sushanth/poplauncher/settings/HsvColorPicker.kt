@@ -3,6 +3,7 @@ package com.sushanth.poplauncher.settings
 import android.graphics.Color as AndroidColor
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -37,7 +38,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import com.sushanth.poplauncher.ui.theme.colorToHex
+import kotlin.math.roundToInt
 
 @Composable
 fun ColorPickerDialog(
@@ -55,9 +62,9 @@ fun ColorPickerDialog(
     var saturation by remember { mutableFloatStateOf(hsv[1]) }
     var value by remember { mutableFloatStateOf(hsv[2]) }
 
-    val selectedColor = Color(
-        AndroidColor.HSVToColor(floatArrayOf(hue, saturation, value))
-    )
+    val selectedColor = remember(hue, saturation, value) {
+        Color(AndroidColor.HSVToColor(floatArrayOf(hue, saturation, value)))
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -133,9 +140,9 @@ private fun SaturationValuePicker(
     value: Float,
     onChanged: (Float, Float) -> Unit
 ) {
-    val hueColor = Color(
-        AndroidColor.HSVToColor(floatArrayOf(hue, 1f, 1f))
-    )
+    val hueColor = remember(hue) {
+        Color(AndroidColor.HSVToColor(floatArrayOf(hue, 1f, 1f)))
+    }
 
     Box(
         modifier = Modifier
@@ -145,6 +152,7 @@ private fun SaturationValuePicker(
             .background(hueColor)
             .pointerInput(hue) {
                 fun update(position: Offset) {
+                    if (size.width <= 0 || size.height <= 0) return
                     val x = position.x.coerceIn(0f, size.width.toFloat())
                     val y = position.y.coerceIn(0f, size.height.toFloat())
                     val newSaturation = (x / size.width).coerceIn(0f, 1f)
@@ -158,9 +166,13 @@ private fun SaturationValuePicker(
                 detectDragGestures(
                     onDrag = { change, _ ->
                         change.consume()
+                        if (size.width <= 0 || size.height <= 0) return@detectDragGestures
                         val x = change.position.x.coerceIn(0f, size.width.toFloat())
                         val y = change.position.y.coerceIn(0f, size.height.toFloat())
-                        onChanged(x / size.width, 1f - (y / size.height))
+                        onChanged(
+                            (x / size.width).coerceIn(0f, 1f),
+                            1f - (y / size.height).coerceIn(0f, 1f)
+                        )
                     }
                 )
             }
@@ -199,6 +211,7 @@ private fun HuePicker(
             .clip(CircleShape)
             .pointerInput(Unit) {
                 fun update(x: Float) {
+                    if (size.width <= 0) return
                     onHueChanged((x / size.width).coerceIn(0f, 1f) * 360f)
                 }
 
@@ -208,6 +221,7 @@ private fun HuePicker(
                 detectDragGestures(
                     onDrag = { change, _ ->
                         change.consume()
+                        if (size.width <= 0) return@detectDragGestures
                         onHueChanged((change.position.x / size.width).coerceIn(0f, 1f) * 360f)
                     }
                 )
@@ -247,34 +261,21 @@ private fun HuePicker(
     }
 }
 
-private fun Modifier.borderCircle(color: Color, width: androidx.compose.ui.unit.Dp): Modifier {
-    return this.then(
-        Modifier
-            .background(color = color, shape = CircleShape)
-            .padding(width)
-    )
+private fun Modifier.borderCircle(color: Color, width: Dp): Modifier {
+    return this.border(width = width, color = color, shape = CircleShape)
 }
 
 private fun Alignment(x: Float, y: Float): Alignment {
     return object : Alignment {
         override fun align(
-            size: androidx.compose.ui.unit.IntSize,
-            space: androidx.compose.ui.unit.IntSize,
-            layoutDirection: androidx.compose.ui.unit.LayoutDirection
-        ): androidx.compose.ui.unit.IntOffset {
-            return androidx.compose.ui.unit.IntOffset(
-                ((space.width - size.width) * x).toInt(),
-                ((space.height - size.height) * y).toInt()
+            size: IntSize,
+            space: IntSize,
+            layoutDirection: LayoutDirection
+        ): IntOffset {
+            return IntOffset(
+                ((space.width - size.width) * x.coerceIn(0f, 1f)).roundToInt(),
+                ((space.height - size.height) * y.coerceIn(0f, 1f)).roundToInt()
             )
         }
     }
-}
-
-fun colorToHex(color: Color): String {
-    return String.format(
-        "#%02X%02X%02X",
-        (color.red * 255).toInt(),
-        (color.green * 255).toInt(),
-        (color.blue * 255).toInt()
-    )
 }

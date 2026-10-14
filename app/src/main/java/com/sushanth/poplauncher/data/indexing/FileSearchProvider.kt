@@ -1,7 +1,6 @@
 package com.sushanth.poplauncher.data.indexing
 
 import android.Manifest
-import android.util.Log
 import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.Context
@@ -12,6 +11,8 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
+import android.util.Log
+import android.webkit.MimeTypeMap
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import com.sushanth.poplauncher.data.model.FileEntity
@@ -27,16 +28,14 @@ class FileSearchProvider : SearchProvider {
     override val type: SearchType = SearchType.FILE
     override val displayName: String = "Files"
 
-    /**
-     * Android 11+: MediaStore hides PDFs, docs, archives and APKs from apps without
-     * "All files access", even when media permissions are granted. Report unavailable
-     * so the UI shows a grant prompt instead of silently returning zero results.
-     */
     override suspend fun isAvailable(context: Context): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            return ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED ||
+            val hasMedia = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED ||
                 ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED ||
                 ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED
+            val hasVisualSelected = Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
+                ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) == PackageManager.PERMISSION_GRANTED
+            return hasMedia || hasVisualSelected
         }
         return ContextCompat.checkSelfPermission(
             context,
@@ -44,42 +43,7 @@ class FileSearchProvider : SearchProvider {
         ) == PackageManager.PERMISSION_GRANTED
     }
 
-    override suspend fun index(context: Context): List<SearchEntity> = withContext(Dispatchers.IO) {
-        if (!isAvailable(context)) return@withContext emptyList()
-        val results = mutableListOf<SearchEntity>()
-        val uri: Uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL)
-        } else {
-            MediaStore.Files.getContentUri("external")
-        }
-        val projection = arrayOf(
-            MediaStore.Files.FileColumns._ID,
-            MediaStore.Files.FileColumns.DISPLAY_NAME
-        )
-        try {
-            context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
-                val idIdx = cursor.getColumnIndex(MediaStore.Files.FileColumns._ID)
-                val nameIdx = cursor.getColumnIndex(MediaStore.Files.FileColumns.DISPLAY_NAME)
-                while (cursor.moveToNext() && results.size < 500) {
-                    val fileId = if (idIdx >= 0) cursor.getLong(idIdx) else 0L
-                    val name = if (nameIdx >= 0) cursor.getString(nameIdx) ?: "File" else "File"
-                    results.add(
-                        FileEntity(
-                            id = "file_index:$fileId",
-                            title = name,
-                            source = "Files",
-                            mimeType = "*/*",
-                            size = 0L,
-                            launchIntent = null
-                        )
-                    )
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("PopLauncher", "FileSearchProvider.index failed: ${e.message}", e)
-        }
-        results
-    }
+    override suspend fun index(context: Context): List<SearchEntity> = emptyList()
 
     override suspend fun search(query: String, context: Context): List<SearchEntity> =
         withContext(Dispatchers.IO) {
@@ -94,23 +58,9 @@ class FileSearchProvider : SearchProvider {
             }
 
             val projection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                arrayOf(
-                    MediaStore.Files.FileColumns._ID,
-                    MediaStore.Files.FileColumns.DISPLAY_NAME,
-                    MediaStore.Files.FileColumns.TITLE,
-                    MediaStore.Files.FileColumns.SIZE,
-                    MediaStore.Files.FileColumns.MIME_TYPE,
-                    MediaStore.Files.FileColumns.RELATIVE_PATH
-                )
+                PROJECTION_Q
             } else {
-                arrayOf(
-                    MediaStore.Files.FileColumns._ID,
-                    MediaStore.Files.FileColumns.DISPLAY_NAME,
-                    MediaStore.Files.FileColumns.TITLE,
-                    MediaStore.Files.FileColumns.SIZE,
-                    MediaStore.Files.FileColumns.MIME_TYPE,
-                    MediaStore.Files.FileColumns.DATA
-                )
+                PROJECTION_LEGACY
             }
 
             val lowerQuery = trimmed.lowercase()
@@ -124,8 +74,7 @@ class FileSearchProvider : SearchProvider {
                     putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, sortOrder)
                     putInt(ContentResolver.QUERY_ARG_LIMIT, 25)
                 }
-                val cursor = context.contentResolver.query(uri, projection, queryArgs, null)
-                cursor?.use { cursor ->
+                context.contentResolver.query(uri, projection, queryArgs, null)?.use { cursor ->
                     val idIdx = cursor.getColumnIndex(MediaStore.Files.FileColumns._ID)
                     val nameIdx = cursor.getColumnIndex(MediaStore.Files.FileColumns.DISPLAY_NAME)
                     val titleIdx = cursor.getColumnIndex(MediaStore.Files.FileColumns.TITLE)
@@ -152,20 +101,18 @@ class FileSearchProvider : SearchProvider {
 
                         val formattedSize = formatFileSize(size)
                         val readableType = formatMimeType(mime, name)
-                        val folderName = relativePath?.trim('/')?.split('/')?.lastOrNull()?.takeIf { it.isNotBlank() }
+                        val folderName = relativePath?.trim('/')?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
 
-                        val subtitleParts = mutableListOf<String>()
+                        val subtitleParts = ArrayList<String>(3)
                         if (!folderName.isNullOrBlank()) subtitleParts.add(folderName)
                         subtitleParts.add(readableType)
                         if (formattedSize.isNotBlank()) subtitleParts.add(formattedSize)
-
-                        val subtitle = subtitleParts.joinToString(" • ")
 
                         results.add(
                             FileEntity(
                                 id = "file:$fileId",
                                 title = name,
-                                subtitle = subtitle,
+                                subtitle = subtitleParts.joinToString(" • "),
                                 source = "Files",
                                 mimeType = mime,
                                 size = size,
@@ -174,23 +121,19 @@ class FileSearchProvider : SearchProvider {
                             )
                         )
                     }
-                    Log.d("PopLauncher", "FileSearchProvider found ${results.size} files for query: $trimmed")
-                } ?: Log.e("PopLauncher", "FileSearchProvider cursor is null for query: $trimmed")
+                }
             } catch (e: Exception) {
                 Log.e("PopLauncher", "FileSearchProvider exception: ${e.message}", e)
             }
 
-            val canScanDisk = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                false
-            } else {
+            val canScanDisk = Build.VERSION.SDK_INT < Build.VERSION_CODES.R &&
                 ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
-            }
 
-            if (canScanDisk) {
+            if (canScanDisk && results.size < 25) {
                 val diskFiles = searchDiskStorage(trimmed, context)
                 val existingTitles = results.mapTo(HashSet()) { it.title.lowercase() }
                 for (df in diskFiles) {
-                    if (df.title.lowercase() !in existingTitles) {
+                    if (existingTitles.add(df.title.lowercase())) {
                         results.add(df)
                     }
                     if (results.size >= 25) break
@@ -211,21 +154,26 @@ class FileSearchProvider : SearchProvider {
         val root = Environment.getExternalStorageDirectory() ?: return emptyList()
         if (!root.canRead()) return emptyList()
 
-        val tokens = trimmed.lowercase().split("\\s+".toRegex()).filter { it.isNotBlank() }
+        val tokens = trimmed.lowercase().split(WHITESPACE_REGEX).filter { it.isNotBlank() }
         if (tokens.isEmpty()) return emptyList()
 
-        // Common folders first so the budget is spent where files usually live,
-        // then the rest of shared storage (WhatsApp, Telegram, custom folders, etc.).
+        val allRootEntries = root.listFiles() ?: emptyArray()
         val priority = listOf(
             Environment.DIRECTORY_DOWNLOADS,
             Environment.DIRECTORY_DOCUMENTS
-        ).asSequence().map { File(root, it) }.filter { it.isDirectory }.toList()
-        val others = (root.listFiles() ?: emptyArray())
-            .filter { it.isDirectory && it !in priority && it.name != "Android" && !it.name.startsWith(".") }
-        val rootFiles = (root.listFiles() ?: emptyArray()).filter { it.isFile }
+        ).map { File(root, it) }.filter { it.isDirectory }
+        val prioritySet = priority.toHashSet()
+
+        val others = allRootEntries.filter {
+            it.isDirectory && it !in prioritySet && it.name != "Android" && !it.name.startsWith(".")
+        }
 
         val budget = intArrayOf(MAX_SCANNED_ENTRIES)
-        rootFiles.forEach { matchFile(it, tokens, context, diskResults) }
+        for (entry in allRootEntries) {
+            if (entry.isFile) {
+                matchFile(entry, tokens, context, diskResults)
+            }
+        }
         for (dir in priority + others) {
             if (diskResults.size >= MAX_DISK_RESULTS || budget[0] <= 0) break
             scanDirectory(dir, tokens, context, diskResults, maxDepth = 5, budget = budget)
@@ -273,7 +221,7 @@ class FileSearchProvider : SearchProvider {
             return
         }
         val extension = name.substringAfterLast('.', "").lowercase()
-        val mime = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
+        val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
             ?: context.contentResolver.getType(fileUri)
             ?: "*/*"
         val viewIntent = Intent(Intent.ACTION_VIEW).apply {
@@ -285,7 +233,7 @@ class FileSearchProvider : SearchProvider {
         val readableType = formatMimeType(mime, name)
         val parentName = file.parentFile?.name
 
-        val subtitleParts = mutableListOf<String>()
+        val subtitleParts = ArrayList<String>(3)
         if (!parentName.isNullOrBlank()) subtitleParts.add(parentName)
         subtitleParts.add(readableType)
         if (formattedSize.isNotBlank()) subtitleParts.add(formattedSize)
@@ -304,26 +252,17 @@ class FileSearchProvider : SearchProvider {
         )
     }
 
-    private companion object {
-        const val MAX_DISK_RESULTS = 20
-        const val MAX_SCANNED_ENTRIES = 1000
-    }
-
     internal fun buildFileSelection(trimmed: String, lowerQuery: String): Pair<String?, Array<String>?> {
-        val isGenericFileKeyword = lowerQuery in setOf(
-            "file", "files", "document", "documents", "doc", "docs",
-            "download", "downloads", "paper", "media"
-        )
+        val isGenericFileKeyword = lowerQuery in GENERIC_FILE_KEYWORDS
 
         val sizeFilter = "(${MediaStore.Files.FileColumns.SIZE} >= 0 OR ${MediaStore.Files.FileColumns.SIZE} IS NULL)"
         val notHiddenFilter = "(${MediaStore.Files.FileColumns.DISPLAY_NAME} NOT LIKE '.%' OR ${MediaStore.Files.FileColumns.DISPLAY_NAME} IS NULL)"
 
         if (isGenericFileKeyword) {
-            val selection = "$sizeFilter AND $notHiddenFilter"
-            return Pair(selection, null)
+            return Pair("$sizeFilter AND $notHiddenFilter", null)
         }
 
-        val tokens = trimmed.split("\\s+".toRegex()).filter { it.isNotBlank() }
+        val tokens = trimmed.split(WHITESPACE_REGEX).filter { it.isNotBlank() }
         if (tokens.isEmpty()) {
             return Pair("$sizeFilter AND $notHiddenFilter", null)
         }
@@ -387,9 +326,9 @@ class FileSearchProvider : SearchProvider {
     internal fun formatFileSize(size: Long): String {
         if (size <= 0) return ""
         return when {
-            size >= 1024 * 1024 * 1024 -> String.format(Locale.US, "%.1f GB", size / (1024.0 * 1024.0 * 1024.0))
-            size >= 1024 * 1024 -> String.format(Locale.US, "%.1f MB", size / (1024.0 * 1024.0))
-            size >= 1024 -> String.format(Locale.US, "%.1f KB", size / 1024.0)
+            size >= 1024L * 1024L * 1024L -> String.format(Locale.US, "%.1f GB", size / (1024.0 * 1024.0 * 1024.0))
+            size >= 1024L * 1024L -> String.format(Locale.US, "%.1f MB", size / (1024.0 * 1024.0))
+            size >= 1024L -> String.format(Locale.US, "%.1f KB", size / 1024.0)
             else -> "$size B"
         }
     }
@@ -408,5 +347,35 @@ class FileSearchProvider : SearchProvider {
             lowerMime.startsWith("audio/") || lowerName.endsWith(".mp3") || lowerName.endsWith(".m4a") -> "Audio File"
             else -> mime.substringAfter("/").uppercase().takeIf { it.length in 2..5 } ?: "File"
         }
+    }
+
+    private companion object {
+        const val MAX_DISK_RESULTS = 20
+        const val MAX_SCANNED_ENTRIES = 1000
+
+        val WHITESPACE_REGEX = Regex("\\s+")
+
+        val GENERIC_FILE_KEYWORDS = setOf(
+            "file", "files", "document", "documents", "doc", "docs",
+            "download", "downloads", "paper", "media"
+        )
+
+        val PROJECTION_Q = arrayOf(
+            MediaStore.Files.FileColumns._ID,
+            MediaStore.Files.FileColumns.DISPLAY_NAME,
+            MediaStore.Files.FileColumns.TITLE,
+            MediaStore.Files.FileColumns.SIZE,
+            MediaStore.Files.FileColumns.MIME_TYPE,
+            MediaStore.Files.FileColumns.RELATIVE_PATH
+        )
+
+        val PROJECTION_LEGACY = arrayOf(
+            MediaStore.Files.FileColumns._ID,
+            MediaStore.Files.FileColumns.DISPLAY_NAME,
+            MediaStore.Files.FileColumns.TITLE,
+            MediaStore.Files.FileColumns.SIZE,
+            MediaStore.Files.FileColumns.MIME_TYPE,
+            MediaStore.Files.FileColumns.DATA
+        )
     }
 }

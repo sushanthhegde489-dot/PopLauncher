@@ -1,6 +1,5 @@
 package com.sushanth.poplauncher.home
 
-import androidx.compose.material3.MaterialTheme
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -26,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Widgets
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -106,7 +106,7 @@ fun HomeContextMenu(
                 ContextMenuItem(
                     label = "Settings",
                     icon = Icons.Outlined.Settings,
-                    iconTint = androidx.compose.material3.MaterialTheme.colorScheme.secondary,
+                    iconTint = MaterialTheme.colorScheme.secondary,
                     onClick = {
                         onDismiss()
                         onOpenSettings()

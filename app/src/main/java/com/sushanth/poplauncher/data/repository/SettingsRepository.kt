@@ -2,27 +2,34 @@ package com.sushanth.poplauncher.data.repository
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.core.content.edit
+import com.sushanth.poplauncher.data.model.AppGroup
 import com.sushanth.poplauncher.data.model.BubbleBehavior
 import com.sushanth.poplauncher.data.model.BubbleConfig
+import com.sushanth.poplauncher.data.model.BubbleSpeed
+import com.sushanth.poplauncher.data.model.GestureActionType
+import com.sushanth.poplauncher.data.model.GestureConfig
+import com.sushanth.poplauncher.data.model.GestureType
 import com.sushanth.poplauncher.data.model.LauncherSettings
 import com.sushanth.poplauncher.data.model.PopDifficulty
 import com.sushanth.poplauncher.data.model.SearchType
-import com.sushanth.poplauncher.data.model.BubbleSpeed
 import com.sushanth.poplauncher.ui.theme.ThemePalette
 import com.sushanth.poplauncher.ui.theme.parseHexColor
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import org.json.JSONArray
 
 class SettingsRepository(context: Context) {
-    private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val prefs: SharedPreferences =
+        context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     private val _settings = MutableStateFlow(loadSettings())
     val settings: StateFlow<LauncherSettings> = _settings.asStateFlow()
 
     private fun loadSettings(): LauncherSettings {
-        val frictionPackages = prefs.getStringSet(KEY_FRICTION_PACKAGES, null) ?: DEFAULT_DISTRACTING_PACKAGES
-        val hiddenPackages = prefs.getStringSet(KEY_HIDDEN_PACKAGES, null) ?: emptySet()
+        val frictionPackages = prefs.getStringSet(KEY_FRICTION_PACKAGES, null)?.toSet() ?: DEFAULT_DISTRACTING_PACKAGES
+        val hiddenPackages = prefs.getStringSet(KEY_HIDDEN_PACKAGES, null)?.toSet() ?: emptySet()
         val hasSetupHidden = prefs.getBoolean(KEY_HAS_SETUP_HIDDEN_APPS, false)
         val appGroups = parseAppGroups(prefs.getString(KEY_APP_GROUPS, null))
         val conversationPackages = prefs.getStringSet(KEY_CONVERSATION_PACKAGES, null)?.toSet()
@@ -44,9 +51,10 @@ class SettingsRepository(context: Context) {
         val caseSensitive = prefs.getBoolean(KEY_CASE_SENSITIVE, false)
         val customColorHex = prefs.getString(KEY_CUSTOM_COLOR_HEX, "#8F425F") ?: "#8F425F"
         val paletteId = prefs.getString(KEY_THEME_PALETTE, ThemePalette.DEFAULT_MAROON.id)
+        val previousPaletteId = prefs.getString(KEY_PREVIOUS_THEME_PALETTE, ThemePalette.DEFAULT_MAROON.id)
+            ?: ThemePalette.DEFAULT_MAROON.id
         val hasCompletedOnboarding = prefs.getBoolean(KEY_HAS_COMPLETED_ONBOARDING, false)
         val geminiApiKey = prefs.getString(KEY_GEMINI_API_KEY, "") ?: ""
-        val hasPromptedDefaultLauncher = prefs.getBoolean(KEY_HAS_PROMPTED_DEFAULT_LAUNCHER, false)
         val showWallpaper = prefs.getBoolean(KEY_SHOW_WALLPAPER, false)
         val wallpaperDim = prefs.getFloat(KEY_WALLPAPER_DIM, 0.2f)
         val showClock = prefs.getBoolean(KEY_SHOW_CLOCK, true)
@@ -54,18 +62,18 @@ class SettingsRepository(context: Context) {
         val showDate = prefs.getBoolean(KEY_SHOW_DATE, true)
         val searchAnimationEnabled = prefs.getBoolean(KEY_SEARCH_ANIMATION, true)
 
-        val gestureDoubleTap = com.sushanth.poplauncher.data.model.GestureConfig.fromSerialized(
+        val gestureDoubleTap = GestureConfig.fromSerialized(
             prefs.getString(KEY_GESTURE_DOUBLE_TAP, null)
         )
-        val gestureTripleTap = com.sushanth.poplauncher.data.model.GestureConfig.fromSerialized(
+        val gestureTripleTap = GestureConfig.fromSerialized(
             prefs.getString(KEY_GESTURE_TRIPLE_TAP, null)
         )
         val gestureSwipeDown = prefs.getString(KEY_GESTURE_SWIPE_DOWN, null)?.let {
-            com.sushanth.poplauncher.data.model.GestureConfig.fromSerialized(it)
-        } ?: com.sushanth.poplauncher.data.model.GestureConfig(
-            actionType = com.sushanth.poplauncher.data.model.GestureActionType.OPEN_SEARCH
+            GestureConfig.fromSerialized(it)
+        } ?: GestureConfig(
+            actionType = GestureActionType.OPEN_SEARCH
         )
-        val gestureSwipeUp = com.sushanth.poplauncher.data.model.GestureConfig.fromSerialized(
+        val gestureSwipeUp = GestureConfig.fromSerialized(
             prefs.getString(KEY_GESTURE_SWIPE_UP, null)
         )
 
@@ -81,9 +89,9 @@ class SettingsRepository(context: Context) {
             enabledProviders = enabledProviders,
             caseSensitive = caseSensitive,
             themePalette = ThemePalette.fromId(paletteId, customColorHex),
+            previousThemePaletteId = previousPaletteId,
             customColorHex = customColorHex,
             hasCompletedOnboarding = hasCompletedOnboarding,
-            hasPromptedDefaultLauncher = hasPromptedDefaultLauncher,
             showWallpaper = showWallpaper,
             wallpaperDim = wallpaperDim,
             showClock = showClock,
@@ -100,7 +108,7 @@ class SettingsRepository(context: Context) {
 
     fun setGeminiApiKey(key: String) {
         val trimmed = key.trim()
-        prefs.edit().putString(KEY_GEMINI_API_KEY, trimmed).apply()
+        prefs.edit { putString(KEY_GEMINI_API_KEY, trimmed) }
         _settings.value = _settings.value.copy(geminiApiKey = trimmed)
     }
 
@@ -108,15 +116,17 @@ class SettingsRepository(context: Context) {
         runCatching { enumValueOf<T>(value.orEmpty()) }.getOrDefault(fallback)
 
     fun setFrictionApps(packages: Set<String>) {
-        prefs.edit().putStringSet(KEY_FRICTION_PACKAGES, HashSet(packages)).apply()
+        prefs.edit { putStringSet(KEY_FRICTION_PACKAGES, HashSet(packages)) }
         _settings.value = _settings.value.copy(frictionAppPackages = packages)
     }
 
     fun setConversationApps(packages: Set<String>?) {
-        if (packages == null) {
-            prefs.edit().remove(KEY_CONVERSATION_PACKAGES).apply()
-        } else {
-            prefs.edit().putStringSet(KEY_CONVERSATION_PACKAGES, HashSet(packages)).apply()
+        prefs.edit {
+            if (packages == null) {
+                remove(KEY_CONVERSATION_PACKAGES)
+            } else {
+                putStringSet(KEY_CONVERSATION_PACKAGES, HashSet(packages))
+            }
         }
         _settings.value = _settings.value.copy(conversationAppPackages = packages)
     }
@@ -124,90 +134,118 @@ class SettingsRepository(context: Context) {
     fun toggleConversationApp(packageName: String, allAvailablePackages: Set<String>) {
         val current = _settings.value.conversationAppPackages?.toMutableSet()
             ?: allAvailablePackages.toMutableSet()
-        if (current.contains(packageName)) {
-            current.remove(packageName)
-        } else {
+        if (!current.remove(packageName)) {
             current.add(packageName)
         }
         setConversationApps(current)
     }
 
-    fun toggleFrictionApp(packageName: String) {
-        val current = _settings.value.frictionAppPackages.toMutableSet()
-        if (!current.add(packageName)) current.remove(packageName)
-        setFrictionApps(current)
-    }
-
     fun setHiddenApps(packages: Set<String>) {
-        prefs.edit().putStringSet(KEY_HIDDEN_PACKAGES, HashSet(packages)).apply()
+        prefs.edit { putStringSet(KEY_HIDDEN_PACKAGES, HashSet(packages)) }
         _settings.value = _settings.value.copy(hiddenAppPackages = packages)
     }
 
     fun setHasSetupHiddenApps(completed: Boolean) {
-        prefs.edit().putBoolean(KEY_HAS_SETUP_HIDDEN_APPS, completed).apply()
+        prefs.edit { putBoolean(KEY_HAS_SETUP_HIDDEN_APPS, completed) }
         _settings.value = _settings.value.copy(hasSetupHiddenApps = completed)
-    }
-
-    fun toggleHiddenApp(packageName: String) {
-        val current = _settings.value.hiddenAppPackages.toMutableSet()
-        if (!current.add(packageName)) current.remove(packageName)
-        setHiddenApps(current)
     }
 
     fun cleanupUninstalled(validPackages: Set<String>) {
         if (validPackages.isEmpty()) return
+        // Preserve #private# entries even when the Private Space profile is locked in quiet mode
         val isValid: (String) -> Boolean = { id ->
-            val pkg = id.substringBefore("#")
-            validPackages.contains(pkg)
+            id.contains("#private#") || validPackages.contains(id.substringBefore("#"))
         }
-        setFrictionApps(_settings.value.frictionAppPackages.filter(isValid).toSet())
-        setHiddenApps(_settings.value.hiddenAppPackages.filter(isValid).toSet())
-        _settings.value.conversationAppPackages?.let { convPackages ->
-            setConversationApps(convPackages.filter(isValid).toSet())
+        val current = _settings.value
+        val newFriction = current.frictionAppPackages.filterTo(LinkedHashSet(), isValid)
+        if (newFriction.size != current.frictionAppPackages.size) {
+            setFrictionApps(newFriction)
+        }
+        val newHidden = current.hiddenAppPackages.filterTo(LinkedHashSet(), isValid)
+        if (newHidden.size != current.hiddenAppPackages.size) {
+            setHiddenApps(newHidden)
+        }
+        current.conversationAppPackages?.let { convPackages ->
+            val newConv = convPackages.filterTo(LinkedHashSet(), isValid)
+            if (newConv.size != convPackages.size) {
+                setConversationApps(newConv)
+            }
+        }
+        val updatedGroups = current.appGroups.map { group ->
+            val filteredPkgs = group.packageNames.filterTo(LinkedHashSet(), isValid)
+            if (filteredPkgs.size != group.packageNames.size) group.copy(packageNames = filteredPkgs) else group
+        }
+        if (updatedGroups != current.appGroups) {
+            setAppGroups(updatedGroups)
         }
     }
 
     fun setBubbleSpeed(speed: BubbleSpeed) {
-        prefs.edit().putString(KEY_BUBBLE_SPEED, speed.name).apply()
+        prefs.edit { putString(KEY_BUBBLE_SPEED, speed.name) }
         _settings.value = _settings.value.copy(bubbleSpeed = speed)
     }
 
     fun setBubbleBehavior(behavior: BubbleBehavior) {
-        prefs.edit().putString(KEY_BUBBLE_BEHAVIOR, behavior.name).apply()
+        prefs.edit { putString(KEY_BUBBLE_BEHAVIOR, behavior.name) }
         _settings.value = _settings.value.copy(bubbleBehavior = behavior)
     }
 
     fun setPopDifficulty(difficulty: PopDifficulty) {
-        prefs.edit().putString(KEY_POP_DIFFICULTY, difficulty.name).apply()
+        prefs.edit { putString(KEY_POP_DIFFICULTY, difficulty.name) }
         _settings.value = _settings.value.copy(popDifficulty = difficulty)
     }
 
     fun toggleProvider(provider: SearchType, enabled: Boolean) {
         val current = _settings.value.enabledProviders.toMutableSet()
         if (enabled) current.add(provider) else current.remove(provider)
-        prefs.edit().putStringSet(KEY_ENABLED_PROVIDERS, HashSet(current.map { it.name })).apply()
+        prefs.edit { putStringSet(KEY_ENABLED_PROVIDERS, HashSet(current.map { it.name })) }
         _settings.value = _settings.value.copy(enabledProviders = current)
     }
 
     fun setEnabledProviders(providers: Set<SearchType>) {
-        prefs.edit().putStringSet(KEY_ENABLED_PROVIDERS, HashSet(providers.map { it.name })).apply()
+        prefs.edit { putStringSet(KEY_ENABLED_PROVIDERS, HashSet(providers.map { it.name })) }
         _settings.value = _settings.value.copy(enabledProviders = providers)
     }
 
     fun setCaseSensitive(value: Boolean) {
-        prefs.edit().putBoolean(KEY_CASE_SENSITIVE, value).apply()
+        prefs.edit { putBoolean(KEY_CASE_SENSITIVE, value) }
         _settings.value = _settings.value.copy(caseSensitive = value)
     }
 
     fun setThemePalette(palette: ThemePalette) {
-        prefs.edit().putString(KEY_THEME_PALETTE, palette.id).apply()
-        _settings.value = _settings.value.copy(themePalette = palette)
+        val current = _settings.value
+        val previousNonMonoId = if (!palette.isMonochrome) {
+            palette.id
+        } else if (!current.themePalette.isMonochrome) {
+            current.themePalette.id
+        } else {
+            current.previousThemePaletteId
+        }
+        prefs.edit {
+            putString(KEY_THEME_PALETTE, palette.id)
+            putString(KEY_PREVIOUS_THEME_PALETTE, previousNonMonoId)
+        }
+        _settings.value = current.copy(
+            themePalette = palette,
+            previousThemePaletteId = previousNonMonoId
+        )
+    }
+
+    fun setMonochromeMode(enabled: Boolean) {
+        val current = _settings.value
+        if (enabled) {
+            setThemePalette(ThemePalette.MONOCHROME)
+        } else {
+            val restored = ThemePalette.fromId(current.previousThemePaletteId, current.customColorHex)
+                .takeUnless { it.isMonochrome } ?: ThemePalette.DEFAULT_MAROON
+            setThemePalette(restored)
+        }
     }
 
     fun setCustomColor(hex: String) {
         val clean = hex.trim().uppercase()
         val color = parseHexColor(clean)
-        prefs.edit().putString(KEY_CUSTOM_COLOR_HEX, clean).apply()
+        prefs.edit { putString(KEY_CUSTOM_COLOR_HEX, clean) }
         val current = _settings.value
         _settings.value = current.copy(
             customColorHex = clean,
@@ -216,74 +254,68 @@ class SettingsRepository(context: Context) {
     }
 
     fun setCompletedOnboarding(completed: Boolean) {
-        prefs.edit().putBoolean(KEY_HAS_COMPLETED_ONBOARDING, completed).apply()
+        prefs.edit { putBoolean(KEY_HAS_COMPLETED_ONBOARDING, completed) }
         _settings.value = _settings.value.copy(hasCompletedOnboarding = completed)
     }
 
-    fun setPromptedDefaultLauncher(prompted: Boolean) {
-        prefs.edit().putBoolean(KEY_HAS_PROMPTED_DEFAULT_LAUNCHER, prompted).apply()
-        _settings.value = _settings.value.copy(hasPromptedDefaultLauncher = prompted)
-    }
-
     fun setShowWallpaper(show: Boolean) {
-        prefs.edit().putBoolean(KEY_SHOW_WALLPAPER, show).apply()
+        prefs.edit { putBoolean(KEY_SHOW_WALLPAPER, show) }
         _settings.value = _settings.value.copy(showWallpaper = show)
     }
 
     fun setWallpaperDim(dim: Float) {
-        prefs.edit().putFloat(KEY_WALLPAPER_DIM, dim).apply()
+        prefs.edit { putFloat(KEY_WALLPAPER_DIM, dim) }
         _settings.value = _settings.value.copy(wallpaperDim = dim)
     }
 
     fun setShowClock(show: Boolean) {
-        prefs.edit().putBoolean(KEY_SHOW_CLOCK, show).apply()
+        prefs.edit { putBoolean(KEY_SHOW_CLOCK, show) }
         _settings.value = _settings.value.copy(showClock = show)
     }
 
     fun setClock24Hour(is24Hour: Boolean) {
-        prefs.edit().putBoolean(KEY_CLOCK_24_HOUR, is24Hour).apply()
+        prefs.edit { putBoolean(KEY_CLOCK_24_HOUR, is24Hour) }
         _settings.value = _settings.value.copy(clock24Hour = is24Hour)
     }
 
     fun setShowDate(show: Boolean) {
-        prefs.edit().putBoolean(KEY_SHOW_DATE, show).apply()
+        prefs.edit { putBoolean(KEY_SHOW_DATE, show) }
         _settings.value = _settings.value.copy(showDate = show)
     }
 
     fun setSearchAnimationEnabled(enabled: Boolean) {
-        prefs.edit().putBoolean(KEY_SEARCH_ANIMATION, enabled).apply()
+        prefs.edit { putBoolean(KEY_SEARCH_ANIMATION, enabled) }
         _settings.value = _settings.value.copy(searchAnimationEnabled = enabled)
     }
 
     fun setGestureConfig(
-        gestureType: com.sushanth.poplauncher.data.model.GestureType,
-        config: com.sushanth.poplauncher.data.model.GestureConfig
+        gestureType: GestureType,
+        config: GestureConfig
     ) {
         val serialized = config.toSerialized()
         val key = when (gestureType) {
-            com.sushanth.poplauncher.data.model.GestureType.DOUBLE_TAP -> KEY_GESTURE_DOUBLE_TAP
-            com.sushanth.poplauncher.data.model.GestureType.TRIPLE_TAP -> KEY_GESTURE_TRIPLE_TAP
-            com.sushanth.poplauncher.data.model.GestureType.SWIPE_DOWN -> KEY_GESTURE_SWIPE_DOWN
-            com.sushanth.poplauncher.data.model.GestureType.SWIPE_UP -> KEY_GESTURE_SWIPE_UP
+            GestureType.DOUBLE_TAP -> KEY_GESTURE_DOUBLE_TAP
+            GestureType.TRIPLE_TAP -> KEY_GESTURE_TRIPLE_TAP
+            GestureType.SWIPE_DOWN -> KEY_GESTURE_SWIPE_DOWN
+            GestureType.SWIPE_UP -> KEY_GESTURE_SWIPE_UP
         }
-        prefs.edit().putString(key, serialized).apply()
+        prefs.edit { putString(key, serialized) }
         _settings.value = when (gestureType) {
-            com.sushanth.poplauncher.data.model.GestureType.DOUBLE_TAP -> _settings.value.copy(gestureDoubleTap = config)
-            com.sushanth.poplauncher.data.model.GestureType.TRIPLE_TAP -> _settings.value.copy(gestureTripleTap = config)
-            com.sushanth.poplauncher.data.model.GestureType.SWIPE_DOWN -> _settings.value.copy(gestureSwipeDown = config)
-            com.sushanth.poplauncher.data.model.GestureType.SWIPE_UP -> _settings.value.copy(gestureSwipeUp = config)
+            GestureType.DOUBLE_TAP -> _settings.value.copy(gestureDoubleTap = config)
+            GestureType.TRIPLE_TAP -> _settings.value.copy(gestureTripleTap = config)
+            GestureType.SWIPE_DOWN -> _settings.value.copy(gestureSwipeDown = config)
+            GestureType.SWIPE_UP -> _settings.value.copy(gestureSwipeUp = config)
         }
     }
 
-
-    fun setAppGroups(groups: List<com.sushanth.poplauncher.data.model.AppGroup>) {
-        val jsonArray = org.json.JSONArray()
+    fun setAppGroups(groups: List<AppGroup>) {
+        val jsonArray = JSONArray()
         groups.forEach { jsonArray.put(it.toJson()) }
-        prefs.edit().putString(KEY_APP_GROUPS, jsonArray.toString()).apply()
+        prefs.edit { putString(KEY_APP_GROUPS, jsonArray.toString()) }
         _settings.value = _settings.value.copy(appGroups = groups)
     }
 
-    fun saveAppGroup(group: com.sushanth.poplauncher.data.model.AppGroup) {
+    fun saveAppGroup(group: AppGroup) {
         val current = _settings.value.appGroups.toMutableList()
         val index = current.indexOfFirst { it.id == group.id }
         if (index >= 0) {
@@ -299,14 +331,14 @@ class SettingsRepository(context: Context) {
         setAppGroups(current)
     }
 
-    private fun parseAppGroups(raw: String?): List<com.sushanth.poplauncher.data.model.AppGroup> {
+    private fun parseAppGroups(raw: String?): List<AppGroup> {
         if (raw.isNullOrBlank()) return emptyList()
         return runCatching {
-            val arr = org.json.JSONArray(raw)
-            val list = mutableListOf<com.sushanth.poplauncher.data.model.AppGroup>()
+            val arr = JSONArray(raw)
+            val list = mutableListOf<AppGroup>()
             for (i in 0 until arr.length()) {
                 val obj = arr.optJSONObject(i) ?: continue
-                list.add(com.sushanth.poplauncher.data.model.AppGroup.fromJson(obj))
+                list.add(AppGroup.fromJson(obj))
             }
             list
         }.getOrDefault(emptyList())
@@ -330,10 +362,10 @@ class SettingsRepository(context: Context) {
         private const val KEY_ENABLED_PROVIDERS = "enabled_providers"
         private const val KEY_CASE_SENSITIVE = "case_sensitive"
         private const val KEY_THEME_PALETTE = "theme_palette"
+        private const val KEY_PREVIOUS_THEME_PALETTE = "previous_theme_palette"
         private const val KEY_CUSTOM_COLOR_HEX = "custom_color_hex"
         private const val KEY_HAS_COMPLETED_ONBOARDING = "has_completed_onboarding"
         private const val KEY_GEMINI_API_KEY = "gemini_api_key"
-        private const val KEY_HAS_PROMPTED_DEFAULT_LAUNCHER = "has_prompted_default_launcher"
         private const val KEY_SHOW_WALLPAPER = "show_wallpaper"
         private const val KEY_WALLPAPER_DIM = "wallpaper_dim"
         private const val KEY_SHOW_CLOCK = "show_clock"

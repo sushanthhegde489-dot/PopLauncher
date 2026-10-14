@@ -2,7 +2,8 @@ package com.sushanth.poplauncher.bubble
 
 import com.sushanth.poplauncher.data.model.BubbleBehavior
 import com.sushanth.poplauncher.data.model.BubbleConfig
-import com.sushanth.poplauncher.data.model.BubbleSpeed
+import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
@@ -30,15 +31,11 @@ class BubblePhysicsEngine(
 
     private var isInitialized: Boolean = false
     private var isUserInteracting: Boolean = false
-    private var idleTimerMs: Long = 0L
+    private var idleElapsedSeconds: Float = 0f
 
-    // Base speed in dp/sec scaled to pixels later
+    // Base speed in dp/sec scaled by BubbleSpeed multiplier
     private val speedMultiplier: Float
-        get() = when (config.speed) {
-            BubbleSpeed.SLOW -> 90f
-            BubbleSpeed.NORMAL -> 170f
-            BubbleSpeed.FAST -> 280f
-        }
+        get() = 170f * config.speed.speedMultiplier
 
     fun updateConfig(newConfig: BubbleConfig) {
         this.config = newConfig
@@ -77,14 +74,14 @@ class BubblePhysicsEngine(
         velY = sin(angle) * speed
         isInitialized = true
         isUserInteracting = false
-        idleTimerMs = 0L
+        idleElapsedSeconds = config.idleDelayMs / 1000f
     }
 
     fun setInteracting(interacting: Boolean) {
         if (isUserInteracting != interacting) {
             isUserInteracting = interacting
             if (!interacting) {
-                idleTimerMs = System.currentTimeMillis()
+                idleElapsedSeconds = 0f
             }
         }
     }
@@ -116,41 +113,45 @@ class BubblePhysicsEngine(
             return
         }
 
-        // Check idle delay before regaining full drift velocity
-        val timeSinceRelease = System.currentTimeMillis() - idleTimerMs
-        val isRecovering = timeSinceRelease < config.idleDelayMs
+        idleElapsedSeconds += dt
 
-        if (isRecovering) {
-            val ratio = timeSinceRelease.toFloat() / config.idleDelayMs.toFloat()
-            velX += (velX.coerceIn(-10f, 10f)) * ratio
-            velY += (velY.coerceIn(-10f, 10f)) * ratio
+        // Smoothly ramp back up to target drift speed after user releases the bubble
+        val idleDelaySeconds = (config.idleDelayMs / 1000f).coerceAtLeast(0.001f)
+        val recoveryFactor = if (config.idleDelayMs > 0L && idleElapsedSeconds < idleDelaySeconds) {
+            (idleElapsedSeconds / idleDelaySeconds).coerceIn(0.15f, 1f)
+        } else {
+            1f
         }
 
         // Apply behavioral variations (Drift / Random organic wandering)
         when (config.behavior) {
             BubbleBehavior.DRIFT -> {
-                // Subtle organic steering perturbation
                 val wanderAngle = (Random.nextFloat() - 0.5f) * 0.4f
-                val curSpeed = sqrt(velX * velX + velY * velY).coerceAtLeast(speedMultiplier * 0.5f)
-                val curAngle = kotlin.math.atan2(velY, velX) + wanderAngle * dt * 5f
+                val minDriftSpeed = speedMultiplier * 0.5f * recoveryFactor
+                val curSpeed = sqrt(velX * velX + velY * velY).coerceAtLeast(minDriftSpeed)
+                val curAngle = atan2(velY, velX) + wanderAngle * dt * 5f
                 velX = cos(curAngle) * curSpeed
                 velY = sin(curAngle) * curSpeed
             }
             BubbleBehavior.RANDOMIZED -> {
-                // Occasional randomized velocity kicks
                 if (Random.nextFloat() < 0.04f) {
                     val angle = Random.nextFloat() * 2f * Math.PI.toFloat()
-                    val targetSpeed = speedMultiplier * (0.7f + Random.nextFloat() * 0.6f)
+                    val targetSpeed = speedMultiplier * (0.7f + Random.nextFloat() * 0.6f) * recoveryFactor
                     velX = velX * 0.7f + cos(angle) * targetSpeed * 0.3f
                     velY = velY * 0.7f + sin(angle) * targetSpeed * 0.3f
                 }
             }
             BubbleBehavior.CONTINUOUS -> {
-                // Stable continuous motion with slight gentle damping/normalization
                 val curSpeed = sqrt(velX * velX + velY * velY)
-                if (curSpeed < speedMultiplier * 0.8f) {
-                    velX *= 1.05f
-                    velY *= 1.05f
+                if (curSpeed < speedMultiplier * 0.8f * recoveryFactor) {
+                    if (curSpeed < 1f) {
+                        val angle = Random.nextFloat() * 2f * Math.PI.toFloat()
+                        velX = cos(angle) * speedMultiplier * 0.3f * recoveryFactor
+                        velY = sin(angle) * speedMultiplier * 0.3f * recoveryFactor
+                    } else {
+                        velX *= 1.05f
+                        velY *= 1.05f
+                    }
                 }
             }
         }
@@ -168,18 +169,18 @@ class BubblePhysicsEngine(
 
         if (posX <= minBoundX) {
             posX = minBoundX
-            velX = kotlin.math.abs(velX) * bounce
+            velX = abs(velX) * bounce
         } else if (posX >= maxBoundX) {
             posX = maxBoundX
-            velX = -kotlin.math.abs(velX) * bounce
+            velX = -abs(velX) * bounce
         }
 
         if (posY <= minBoundY) {
             posY = minBoundY
-            velY = kotlin.math.abs(velY) * bounce
+            velY = abs(velY) * bounce
         } else if (posY >= maxBoundY) {
             posY = maxBoundY
-            velY = -kotlin.math.abs(velY) * bounce
+            velY = -abs(velY) * bounce
         }
     }
 }

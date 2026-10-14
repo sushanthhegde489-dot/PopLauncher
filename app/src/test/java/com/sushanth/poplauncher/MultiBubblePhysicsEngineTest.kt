@@ -4,7 +4,7 @@ import com.sushanth.poplauncher.bubble.MultiBubblePhysicsEngine
 import com.sushanth.poplauncher.data.model.AppEntity
 import com.sushanth.poplauncher.data.model.BubbleConfig
 import com.sushanth.poplauncher.data.model.BubbleSpeed
-import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.sqrt
@@ -54,7 +54,6 @@ class MultiBubblePhysicsEngineTest {
         val engine = MultiBubblePhysicsEngine(apps, BubbleConfig(speed = BubbleSpeed.NORMAL), bubbleSizePx = 100f)
         engine.updateBounds(0f, 600f, 0f, 600f)
 
-        // Force positions heading towards each other
         val b1 = engine.bodies[0]
         val b2 = engine.bodies[1]
 
@@ -68,7 +67,6 @@ class MultiBubblePhysicsEngineTest {
         b2.velX = -100f
         b2.velY = 0f
 
-        // Advance simulation until they meet and bounce
         var bounced = false
         for (i in 0 until 120) {
             engine.update(1f / 60f)
@@ -100,14 +98,11 @@ class MultiBubblePhysicsEngineTest {
         b2.posX = 400f
         b2.posY = 400f
 
-        // User starts dragging b1 directly into b2
         engine.startDrag(b1.app.id)
         engine.updateDrag(b1.app.id, 380f, 400f)
 
-        // Resolve collision
         engine.update(1f / 60f)
 
-        // b2 must be pushed away from b1
         val dx = b2.posX - b1.posX
         val dy = b2.posY - b1.posY
         val dist = sqrt(dx * dx + dy * dy)
@@ -126,7 +121,6 @@ class MultiBubblePhysicsEngineTest {
         val b1 = engine.bodies[0]
         val b2 = engine.bodies[1]
 
-        // Exactly identical positions (dist = 0f)
         b1.posX = 300f
         b1.posY = 300f
         b1.velX = 0f
@@ -139,12 +133,12 @@ class MultiBubblePhysicsEngineTest {
 
         engine.resolvePairCollisions(updateVelocities = true)
 
-        org.junit.Assert.assertFalse("b1.posX must not be NaN", b1.posX.isNaN())
-        org.junit.Assert.assertFalse("b1.posY must not be NaN", b1.posY.isNaN())
-        org.junit.Assert.assertFalse("b2.posX must not be NaN", b2.posX.isNaN())
-        org.junit.Assert.assertFalse("b2.posY must not be NaN", b2.posY.isNaN())
-        org.junit.Assert.assertFalse("b1.velX must not be NaN", b1.velX.isNaN())
-        org.junit.Assert.assertFalse("b2.velX must not be NaN", b2.velX.isNaN())
+        assertFalse("b1.posX must not be NaN", b1.posX.isNaN())
+        assertFalse("b1.posY must not be NaN", b1.posY.isNaN())
+        assertFalse("b2.posX must not be NaN", b2.posX.isNaN())
+        assertFalse("b2.posY must not be NaN", b2.posY.isNaN())
+        assertFalse("b1.velX must not be NaN", b1.velX.isNaN())
+        assertFalse("b2.velX must not be NaN", b2.velX.isNaN())
     }
 
     @Test
@@ -162,6 +156,6 @@ class MultiBubblePhysicsEngineTest {
         assertTrue("Engine should be settled when velocities are near zero", engine.isSettled)
 
         b1.velX = 50f
-        org.junit.Assert.assertFalse("Engine should not be settled when velocity is high", engine.isSettled)
+        assertFalse("Engine should not be settled when velocity is high", engine.isSettled)
     }
 }

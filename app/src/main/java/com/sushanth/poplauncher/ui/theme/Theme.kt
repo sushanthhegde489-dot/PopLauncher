@@ -6,6 +6,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 
@@ -73,56 +74,60 @@ fun PopLauncherTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
-    val baseScheme = if (darkTheme) PopLauncherDarkColorScheme else PopLauncherLightColorScheme
-    val colorScheme = if (palette.isMonochrome) {
-        val monoPrimary = if (darkTheme) Color(0xFFEEEEEE) else Color(0xFF1E1E1E)
-        val monoOnPrimary = if (darkTheme) Color(0xFF121212) else Color(0xFFFFFFFF)
-        val monoBackground = if (darkTheme) Color(0xFF121212) else Color(0xFFF8F8F8)
-        val monoSurface = if (darkTheme) Color(0xFF1C1C1C) else Color(0xFFEFEFEF)
-        val monoSurfaceVariant = if (darkTheme) Color(0xFF282828) else Color(0xFFE2E2E2)
-        baseScheme.copy(
-            primary = monoPrimary,
-            onPrimary = monoOnPrimary,
-            primaryContainer = if (darkTheme) Color(0xFF333333) else Color(0xFFDDDDDD),
-            onPrimaryContainer = monoPrimary,
-            secondary = if (darkTheme) Color(0xFFCCCCCC) else Color(0xFF333333),
-            onSecondary = monoOnPrimary,
-            secondaryContainer = if (darkTheme) Color(0xFF2A2A2A) else Color(0xFFE8E8E8),
-            onSecondaryContainer = if (darkTheme) Color(0xFFEEEEEE) else Color(0xFF111111),
-            tertiary = if (darkTheme) Color(0xFFAAAAAA) else Color(0xFF555555),
-            onTertiary = monoOnPrimary,
-            background = monoBackground,
-            onBackground = if (darkTheme) Color(0xFFF5F5F5) else Color(0xFF151515),
-            surface = monoSurface,
-            onSurface = if (darkTheme) Color(0xFFF5F5F5) else Color(0xFF151515),
-            surfaceVariant = monoSurfaceVariant,
-            onSurfaceVariant = if (darkTheme) Color(0xFFCCCCCC) else Color(0xFF444444)
-        )
-    } else if (palette != ThemePalette.DEFAULT_MAROON) {
-        val background = baseScheme.background
-        val primary = palette.primary
-        val accent = palette.accent
-        val primaryContainer = blend(primary, background, if (darkTheme) 0.28f else 0.12f)
-        val secondaryContainer = blend(accent, background, if (darkTheme) 0.22f else 0.10f)
-        baseScheme.copy(
-            primary = primary,
-            onPrimary = palette.onPrimary,
-            primaryContainer = primaryContainer,
-            onPrimaryContainer = bestOnColor(primaryContainer),
-            secondary = accent,
-            onSecondary = bestOnColor(accent),
-            secondaryContainer = secondaryContainer,
-            onSecondaryContainer = bestOnColor(secondaryContainer),
-            tertiary = accent,
-            onTertiary = bestOnColor(accent),
-            tertiaryContainer = blend(accent, background, if (darkTheme) 0.20f else 0.10f),
-            onTertiaryContainer = bestOnColor(blend(accent, background, if (darkTheme) 0.20f else 0.10f))
-        )
-    } else {
-        // DEFAULT_MAROON palette: PopLauncherDarkColorScheme and PopLauncherLightColorScheme
-        // already define the correct maroon color tokens for dark and light mode respectively.
-        // No override needed — use the base scheme directly.
-        baseScheme
+    val colorScheme = remember(palette, darkTheme) {
+        val baseScheme = if (darkTheme) PopLauncherDarkColorScheme else PopLauncherLightColorScheme
+        when {
+            palette.isMonochrome -> {
+                val monoPrimary = if (darkTheme) Color(0xFFEEEEEE) else Color(0xFF1E1E1E)
+                val monoOnPrimary = if (darkTheme) Color(0xFF121212) else Color(0xFFFFFFFF)
+                val monoBackground = if (darkTheme) Color(0xFF121212) else Color(0xFFF8F8F8)
+                val monoSurface = if (darkTheme) Color(0xFF1C1C1C) else Color(0xFFEFEFEF)
+                val monoSurfaceVariant = if (darkTheme) Color(0xFF282828) else Color(0xFFE2E2E2)
+                val monoOnBg = if (darkTheme) Color(0xFFF5F5F5) else Color(0xFF151515)
+                baseScheme.copy(
+                    primary = monoPrimary,
+                    onPrimary = monoOnPrimary,
+                    primaryContainer = if (darkTheme) Color(0xFF333333) else Color(0xFFDDDDDD),
+                    onPrimaryContainer = monoPrimary,
+                    secondary = if (darkTheme) Color(0xFFCCCCCC) else Color(0xFF333333),
+                    onSecondary = monoOnPrimary,
+                    secondaryContainer = if (darkTheme) Color(0xFF2A2A2A) else Color(0xFFE8E8E8),
+                    onSecondaryContainer = if (darkTheme) Color(0xFFEEEEEE) else Color(0xFF111111),
+                    tertiary = if (darkTheme) Color(0xFFAAAAAA) else Color(0xFF555555),
+                    onTertiary = monoOnPrimary,
+                    background = monoBackground,
+                    onBackground = monoOnBg,
+                    surface = monoSurface,
+                    onSurface = monoOnBg,
+                    surfaceVariant = monoSurfaceVariant,
+                    onSurfaceVariant = if (darkTheme) Color(0xFFCCCCCC) else Color(0xFF444444)
+                )
+            }
+            palette != ThemePalette.DEFAULT_MAROON -> {
+                val background = baseScheme.background
+                val primary = palette.primary
+                val accent = palette.accent
+                val onAccent = bestOnColor(accent)
+                val primaryContainer = blend(primary, background, if (darkTheme) 0.28f else 0.12f)
+                val secondaryContainer = blend(accent, background, if (darkTheme) 0.22f else 0.10f)
+                val tertiaryContainer = blend(accent, background, if (darkTheme) 0.20f else 0.10f)
+                baseScheme.copy(
+                    primary = primary,
+                    onPrimary = palette.onPrimary,
+                    primaryContainer = primaryContainer,
+                    onPrimaryContainer = bestOnColor(primaryContainer),
+                    secondary = accent,
+                    onSecondary = onAccent,
+                    secondaryContainer = secondaryContainer,
+                    onSecondaryContainer = bestOnColor(secondaryContainer),
+                    tertiary = accent,
+                    onTertiary = onAccent,
+                    tertiaryContainer = tertiaryContainer,
+                    onTertiaryContainer = bestOnColor(tertiaryContainer)
+                )
+            }
+            else -> baseScheme
+        }
     }
 
     CompositionLocalProvider(

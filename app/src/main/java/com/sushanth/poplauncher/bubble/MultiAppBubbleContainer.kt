@@ -1,6 +1,7 @@
 package com.sushanth.poplauncher.bubble
 
 import android.graphics.drawable.Drawable
+import android.os.UserHandle
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -25,6 +26,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,23 +37,32 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
-import kotlinx.coroutines.delay
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import com.sushanth.poplauncher.data.model.AppEntity
 import com.sushanth.poplauncher.data.model.BubbleConfig
 import com.sushanth.poplauncher.ui.theme.DarkOnBackground
+import com.sushanth.poplauncher.ui.theme.LocalIsMonochromeTheme
+import com.sushanth.poplauncher.util.drawableToBitmap
 import kotlin.math.hypot
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -59,19 +70,40 @@ import kotlin.time.Duration.Companion.milliseconds
 fun MultiAppBubbleContainer(
     apps: List<AppEntity>,
     bubbleConfig: BubbleConfig,
-    getAppIcon: (String) -> Drawable?,
+    getAppIcon: (String, UserHandle?) -> Drawable?,
     modifier: Modifier = Modifier,
     onDismiss: () -> Unit = {},
     onAppLaunch: (AppEntity) -> Unit,
 ) {
     val density = LocalDensity.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var isResumed by remember { mutableStateOf(true) }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                isResumed = true
+            } else if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) {
+                isResumed = false
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
     val bubbleSizeDp = 76.dp
     val bubbleSizePx = with(density) { bubbleSizeDp.toPx() }
 
     var screenBounds by remember { mutableStateOf(floatArrayOf(0f, 0f, 0f, 0f)) }
 
-    val physicsEngine = remember(apps, bubbleConfig, bubbleSizePx) {
+    val physicsEngine = remember(apps, bubbleSizePx) {
         MultiBubblePhysicsEngine(apps, bubbleConfig, bubbleSizePx)
+    }
+
+    LaunchedEffect(bubbleConfig) {
+        physicsEngine.updateConfig(bubbleConfig)
     }
 
     LaunchedEffect(screenBounds) {
@@ -80,10 +112,11 @@ fun MultiAppBubbleContainer(
         }
     }
 
-    // Unified 60/120fps physics simulation loop for mutual collision & wall bouncing
-    LaunchedEffect(physicsEngine) {
+    // Unified 60/120fps physics simulation loop (pauses when activity is in background)
+    LaunchedEffect(physicsEngine, isResumed) {
+        if (!isResumed) return@LaunchedEffect
         var lastFrame = 0L
-        while (true) {
+        while (isActive && isResumed) {
             if (physicsEngine.isSettled) {
                 lastFrame = 0L
                 delay(60.milliseconds)
@@ -119,13 +152,15 @@ fun MultiAppBubbleContainer(
             }
     ) {
         if (screenBounds[1] > screenBounds[0]) {
+            val isMonochrome = LocalIsMonochromeTheme.current
             physicsEngine.bodies.forEach { body ->
-                val iconDrawable = remember(body.app.packageName, body.app.userHandle) {
-                    getAppIcon(body.app.packageName)
+                val iconDrawable = remember(body.app.packageName, body.app.userHandle, isMonochrome) {
+                    getAppIcon(body.app.packageName, body.app.userHandle)
                 }
                 PhysicalBubbleItem(
                     body = body,
                     iconDrawable = iconDrawable,
+                    isResumed = isResumed,
                     physicsEngine = physicsEngine,
                     bubbleSizeDp = bubbleSizeDp,
                     onAppLaunch = onAppLaunch
@@ -139,25 +174,30 @@ fun MultiAppBubbleContainer(
 private fun PhysicalBubbleItem(
     body: BubbleBody,
     iconDrawable: Drawable?,
+    isResumed: Boolean,
     physicsEngine: MultiBubblePhysicsEngine,
     bubbleSizeDp: Dp,
     onAppLaunch: (AppEntity) -> Unit,
 ) {
-    val isMonochrome = com.sushanth.poplauncher.ui.theme.LocalIsMonochromeTheme.current
+    val isMonochrome = LocalIsMonochromeTheme.current
     val appBitmap = remember(iconDrawable, isMonochrome) {
-        iconDrawable?.let { com.sushanth.poplauncher.util.drawableToBitmap(it, isMonochrome) }
+        iconDrawable?.let { drawableToBitmap(it, isMonochrome) }
     }
 
-    // Gentle organic breathing pulse per bubble
+    // Gentle organic breathing pulse per bubble (pauses when activity is in background)
     val pulseScale = remember { Animatable(1f) }
-    LaunchedEffect(body.seedIndex) {
-        pulseScale.animateTo(
-            targetValue = 1.05f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(1200 + (body.seedIndex * 150), easing = FastOutSlowInEasing),
-                repeatMode = RepeatMode.Reverse
+    LaunchedEffect(body.seedIndex, isResumed) {
+        if (isResumed) {
+            pulseScale.animateTo(
+                targetValue = 1.05f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1200 + (body.seedIndex * 150), easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse
+                )
             )
-        )
+        } else {
+            pulseScale.snapTo(1f)
+        }
     }
 
     Column(
@@ -173,7 +213,7 @@ private fun PhysicalBubbleItem(
             .size(bubbleSizeDp + 36.dp)
             .clickable(
                 onClickLabel = "Launch ${body.app.title}",
-                role = androidx.compose.ui.semantics.Role.Button
+                role = Role.Button
             ) {
                 onAppLaunch(body.app)
             }
@@ -210,7 +250,7 @@ private fun PhysicalBubbleItem(
 
                             velocityTracker.addPosition(
                                 currentPointer.uptimeMillis,
-                                down.position + androidx.compose.ui.geometry.Offset(cumulativeX, cumulativeY)
+                                down.position + Offset(cumulativeX, cumulativeY)
                             )
                         }
                     } while (event.changes.any { it.pressed })
@@ -261,22 +301,14 @@ private fun PhysicalBubbleItem(
                 Image(
                     bitmap = appBitmap.asImageBitmap(),
                     contentDescription = body.app.title,
-                    colorFilter = if (isMonochrome) androidx.compose.ui.graphics.ColorFilter.colorMatrix(androidx.compose.ui.graphics.ColorMatrix().apply { setToSaturation(0f) }) else null,
                     modifier = Modifier
                         .size(44.dp)
                         .clip(CircleShape)
                 )
-            } else if (body.app.id == "private_space:add_apps") {
-                Text(
-                    text = "+",
-                    color = androidx.compose.ui.graphics.Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 32.sp
-                )
             } else {
                 Text(
                     text = body.app.title.take(1).uppercase(),
-                    color = androidx.compose.ui.graphics.Color.White,
+                    color = Color.White,
                     fontWeight = FontWeight.Bold,
                     fontSize = 24.sp
                 )

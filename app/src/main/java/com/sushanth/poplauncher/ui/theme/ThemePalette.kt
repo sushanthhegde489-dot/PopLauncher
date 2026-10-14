@@ -88,16 +88,15 @@ data class ThemePalette(
             )
         }
 
-        val entries: List<ThemePalette>
-            get() = listOf(
-                DEFAULT_MAROON,
-                CYAN,
-                AMBER,
-                EMERALD,
-                VIOLET,
-                CORAL,
-                MONOCHROME
-            )
+        val entries: List<ThemePalette> = listOf(
+            DEFAULT_MAROON,
+            CYAN,
+            AMBER,
+            EMERALD,
+            VIOLET,
+            CORAL,
+            MONOCHROME
+        )
 
         fun fromId(id: String?, customHex: String? = null): ThemePalette {
             if (id == null) return DEFAULT_MAROON

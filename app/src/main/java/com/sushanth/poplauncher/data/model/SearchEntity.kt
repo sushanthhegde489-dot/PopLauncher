@@ -8,8 +8,6 @@ enum class SearchType {
     APP,
     PERSON,
     CONVERSATION,
-    CALL_LOG,
-    SMS,
     FILE,
     MEDIA,
     GOOGLE_OVERVIEW
@@ -49,11 +47,8 @@ data class PersonEntity(
     override val iconUri: String? = null,
     val contactId: String,
     val phoneNumbers: List<String> = emptyList(),
-    val emails: List<String> = emptyList(),
     override val launchIntent: Intent?,
     val relatedConversations: List<ConversationEntity> = emptyList(),
-    val relatedCalls: List<CallEntity> = emptyList(),
-    val relatedMessages: List<MessageEntity> = emptyList(),
     override val searchableTerms: List<String> = emptyList()
 ) : SearchEntity
 
@@ -65,34 +60,6 @@ data class ConversationEntity(
     override val iconUri: String? = null,
     val personAssociation: String? = null,
     val appPackage: String? = null,
-    val lastMessage: String? = null,
-    val timestamp: Long? = null,
-    override val launchIntent: Intent?,
-    override val searchableTerms: List<String> = emptyList()
-) : SearchEntity
-
-data class MessageEntity(
-    override val id: String,
-    override val title: String,
-    override val subtitle: String? = null,
-    override val source: String = "Messages",
-    override val iconUri: String? = null,
-    val address: String,
-    val body: String,
-    val date: Long = 0L,
-    override val launchIntent: Intent?,
-    override val searchableTerms: List<String> = emptyList()
-) : SearchEntity
-
-data class CallEntity(
-    override val id: String,
-    override val title: String,
-    override val subtitle: String? = null,
-    override val source: String = "Phone",
-    override val iconUri: String? = null,
-    val number: String,
-    val callType: Int = 1,
-    val date: Long = 0L,
     override val launchIntent: Intent?,
     override val searchableTerms: List<String> = emptyList()
 ) : SearchEntity
@@ -161,4 +128,3 @@ data class AppGroupEntity(
     override val launchIntent: Intent? = null,
     override val searchableTerms: List<String> = listOf(groupName, "group", "folder", "category")
 ) : SearchEntity
-

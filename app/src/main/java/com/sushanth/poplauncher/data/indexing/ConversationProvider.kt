@@ -4,12 +4,14 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.LauncherApps
 import android.content.pm.ShortcutInfo
-import android.net.Uri
 import android.os.Process
+import androidx.core.net.toUri
 import com.sushanth.poplauncher.data.model.ConversationEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
+
+private val NON_DIALABLE_REGEX = Regex("[^0-9+]")
 
 interface ConversationProvider {
     val sourceName: String
@@ -60,42 +62,37 @@ class SystemShortcutConversationProvider : ConversationProvider {
         phoneNumbers: List<String>,
         context: Context
     ): List<ConversationEntity> = withContext(Dispatchers.IO) {
-        val results = mutableListOf<ConversationEntity>()
+        val lowerName = name.trim().lowercase()
+        if (lowerName.isEmpty()) return@withContext emptyList()
 
+        val results = mutableListOf<ConversationEntity>()
         try {
             val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as? LauncherApps ?: return@withContext results
             if (!launcherApps.hasShortcutHostPermission()) return@withContext results
 
             val shortcuts = getShortcutsFast(launcherApps)
-            val lowerName = name.trim().lowercase()
-
             for (shortcut in shortcuts) {
                 val label = shortcut.shortLabel?.toString() ?: shortcut.longLabel?.toString() ?: ""
-                val lowerLabel = label.lowercase()
-                val isMatch = lowerName.isNotEmpty() && lowerLabel.contains(lowerName)
+                if (label.isEmpty()) continue
+                val isMatch = label.lowercase().contains(lowerName)
 
                 if (isMatch) {
-                    val appName = try {
-                        context.packageManager.getApplicationLabel(
-                            context.packageManager.getApplicationInfo(shortcut.`package`, 0)
-                        ).toString()
-                    } catch (_: Exception) {
-                        shortcut.`package`
-                    }
+                    val pkg = shortcut.`package`
+                    val appName = PackageCheckCache.getAppLabel(context, pkg)
 
                     results.add(
                         ConversationEntity(
-                            id = "shortcut:${shortcut.`package`}:${shortcut.id}",
+                            id = "shortcut:$pkg:${shortcut.id}",
                             title = label,
                             subtitle = "Conversation on $appName",
                             source = appName,
                             personAssociation = name,
-                            appPackage = shortcut.`package`,
+                            appPackage = pkg,
                             launchIntent = Intent(Intent.ACTION_MAIN).apply {
-                                setPackage(shortcut.`package`)
+                                setPackage(pkg)
                                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                 putExtra("shortcut_id", shortcut.id)
-                                putExtra("shortcut_package", shortcut.`package`)
+                                putExtra("shortcut_package", pkg)
                             }
                         )
                     )
@@ -112,15 +109,16 @@ class SystemShortcutConversationProvider : ConversationProvider {
 }
 
 /**
- * Helper to cache package installation checks
+ * Helper to cache package installation and label lookups to avoid repeated Binder IPC calls
  */
 internal object PackageCheckCache {
-    private val cache = ConcurrentHashMap<String, Pair<Boolean, Long>>()
+    private val installedCache = ConcurrentHashMap<String, Pair<Boolean, Long>>()
+    private val labelCache = ConcurrentHashMap<String, String>()
 
     fun isInstalled(context: Context, packageName: String): Boolean {
         val now = System.currentTimeMillis()
-        val cached = cache[packageName]
-        if (cached != null && (now - cached.second) < 10000L) {
+        val cached = installedCache[packageName]
+        if (cached != null && (now - cached.second) < 10_000L) {
             return cached.first
         }
         val installed = try {
@@ -129,8 +127,30 @@ internal object PackageCheckCache {
         } catch (_: Exception) {
             false
         }
-        cache[packageName] = Pair(installed, now)
+        installedCache[packageName] = Pair(installed, now)
         return installed
+    }
+
+    fun getAppLabel(context: Context, packageName: String): String {
+        labelCache[packageName]?.let { return it }
+        val label = try {
+            val appInfo = context.packageManager.getApplicationInfo(packageName, 0)
+            context.packageManager.getApplicationLabel(appInfo).toString()
+        } catch (_: Exception) {
+            packageName
+        }
+        labelCache[packageName] = label
+        return label
+    }
+
+    fun invalidate(packageName: String? = null) {
+        if (packageName != null) {
+            installedCache.remove(packageName)
+            labelCache.remove(packageName)
+        } else {
+            installedCache.clear()
+            labelCache.clear()
+        }
     }
 }
 
@@ -144,16 +164,16 @@ class WhatsAppConversationProvider : ConversationProvider {
         name: String,
         phoneNumbers: List<String>,
         context: Context
-    ): List<ConversationEntity> = withContext(Dispatchers.IO) {
-        val isInstalled = PackageCheckCache.isInstalled(context, "com.whatsapp")
+    ): List<ConversationEntity> {
+        if (phoneNumbers.isEmpty() || !PackageCheckCache.isInstalled(context, "com.whatsapp")) {
+            return emptyList()
+        }
 
-        if (!isInstalled || phoneNumbers.isEmpty()) return@withContext emptyList()
-
-        phoneNumbers.mapNotNull { rawNumber ->
-            val cleaned = rawNumber.replace("[^0-9+]".toRegex(), "")
+        return phoneNumbers.mapNotNull { rawNumber ->
+            val cleaned = rawNumber.replace(NON_DIALABLE_REGEX, "")
             if (cleaned.length < 5) return@mapNotNull null
 
-            val uri = Uri.parse("https://api.whatsapp.com/send?phone=$cleaned")
+            val uri = "https://api.whatsapp.com/send?phone=$cleaned".toUri()
             val intent = Intent(Intent.ACTION_VIEW, uri).apply {
                 setPackage("com.whatsapp")
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -185,16 +205,16 @@ class WhatsAppBusinessConversationProvider : ConversationProvider {
         name: String,
         phoneNumbers: List<String>,
         context: Context
-    ): List<ConversationEntity> = withContext(Dispatchers.IO) {
-        val isInstalled = PackageCheckCache.isInstalled(context, "com.whatsapp.w4b")
+    ): List<ConversationEntity> {
+        if (phoneNumbers.isEmpty() || !PackageCheckCache.isInstalled(context, "com.whatsapp.w4b")) {
+            return emptyList()
+        }
 
-        if (!isInstalled || phoneNumbers.isEmpty()) return@withContext emptyList()
-
-        phoneNumbers.mapNotNull { rawNumber ->
-            val cleaned = rawNumber.replace("[^0-9+]".toRegex(), "")
+        return phoneNumbers.mapNotNull { rawNumber ->
+            val cleaned = rawNumber.replace(NON_DIALABLE_REGEX, "")
             if (cleaned.length < 5) return@mapNotNull null
 
-            val uri = Uri.parse("https://api.whatsapp.com/send?phone=$cleaned")
+            val uri = "https://api.whatsapp.com/send?phone=$cleaned".toUri()
             val intent = Intent(Intent.ACTION_VIEW, uri).apply {
                 setPackage("com.whatsapp.w4b")
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -226,17 +246,17 @@ class TelegramConversationProvider : ConversationProvider {
         name: String,
         phoneNumbers: List<String>,
         context: Context
-    ): List<ConversationEntity> = withContext(Dispatchers.IO) {
-        val isInstalled = PackageCheckCache.isInstalled(context, "org.telegram.messenger")
-
-        if (!isInstalled) return@withContext emptyList()
+    ): List<ConversationEntity> {
+        if (phoneNumbers.isEmpty() || !PackageCheckCache.isInstalled(context, "org.telegram.messenger")) {
+            return emptyList()
+        }
 
         val results = mutableListOf<ConversationEntity>()
 
         phoneNumbers.forEach { rawNumber ->
-            val cleaned = rawNumber.replace("[^0-9+]".toRegex(), "")
+            val cleaned = rawNumber.replace(NON_DIALABLE_REGEX, "")
             if (cleaned.length >= 6) {
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("tg://msg?to=$cleaned")).apply {
+                val intent = Intent(Intent.ACTION_VIEW, "tg://msg?to=$cleaned".toUri()).apply {
                     setPackage("org.telegram.messenger")
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
@@ -256,7 +276,7 @@ class TelegramConversationProvider : ConversationProvider {
             }
         }
 
-        results.distinctBy { it.id }
+        return results.distinctBy { it.id }
     }
 
     override suspend fun searchConversations(query: String, context: Context): List<ConversationEntity> = emptyList()
@@ -272,16 +292,16 @@ class SignalConversationProvider : ConversationProvider {
         name: String,
         phoneNumbers: List<String>,
         context: Context
-    ): List<ConversationEntity> = withContext(Dispatchers.IO) {
-        val isInstalled = PackageCheckCache.isInstalled(context, "org.thoughtcrime.securesms")
+    ): List<ConversationEntity> {
+        if (phoneNumbers.isEmpty() || !PackageCheckCache.isInstalled(context, "org.thoughtcrime.securesms")) {
+            return emptyList()
+        }
 
-        if (!isInstalled || phoneNumbers.isEmpty()) return@withContext emptyList()
-
-        phoneNumbers.mapNotNull { rawNumber ->
-            val cleaned = rawNumber.replace("[^0-9+]".toRegex(), "")
+        return phoneNumbers.mapNotNull { rawNumber ->
+            val cleaned = rawNumber.replace(NON_DIALABLE_REGEX, "")
             if (cleaned.length < 5) return@mapNotNull null
 
-            val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:$cleaned")).apply {
+            val intent = Intent(Intent.ACTION_SENDTO, "smsto:$cleaned".toUri()).apply {
                 setPackage("org.thoughtcrime.securesms")
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }

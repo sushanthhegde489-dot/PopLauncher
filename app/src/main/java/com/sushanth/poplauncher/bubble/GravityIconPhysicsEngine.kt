@@ -7,8 +7,7 @@ class GravityIconPhysicsEngine(
     val gravity: Float = 1200f,
     val bounceCoefficient: Float = 0.88f,
     val frictionX: Float = 0.995f,
-    val frictionY: Float = 0.998f,
-    val minSpeedX: Float = 120f
+    val frictionY: Float = 0.998f
 ) {
     var posX: Float = 0f
         private set

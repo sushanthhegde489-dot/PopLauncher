@@ -4,11 +4,12 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.SharedPreferences
-import androidx.core.content.edit
 import android.widget.Toast
+import androidx.core.content.edit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,8 +17,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
-import java.net.URL
+import java.net.URI
+import java.util.Locale
 
 class CustomWidgetRepository(private val context: Context? = null) {
     private val prefs: SharedPreferences? = context?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -25,6 +28,10 @@ class CustomWidgetRepository(private val context: Context? = null) {
 
     private val _customWidgets = MutableStateFlow(loadWidgets())
     val customWidgets: StateFlow<List<CustomWidget>> = _customWidgets.asStateFlow()
+
+    fun close() {
+        scope.cancel()
+    }
 
     private fun loadWidgets(): List<CustomWidget> {
         val raw = prefs?.getString(KEY_WIDGETS, null) ?: return emptyList()
@@ -216,14 +223,28 @@ class CustomWidgetRepository(private val context: Context? = null) {
 
     private suspend fun fetchApiData(urlString: String): Map<String, String> = withContext(Dispatchers.IO) {
         try {
-            val url = URL(urlString)
-            val conn = url.openConnection() as HttpURLConnection
+            val uri = URI(urlString)
+            if (!uri.scheme.equals("https", true) || uri.host.isNullOrBlank()) return@withContext emptyMap()
+            val conn = uri.toURL().openConnection() as? HttpURLConnection ?: return@withContext emptyMap()
             try {
                 conn.requestMethod = "GET"
                 conn.connectTimeout = 4000
                 conn.readTimeout = 4000
-                if (conn.responseCode == 200) {
-                    val responseText = conn.inputStream.bufferedReader().use { it.readText() }
+                conn.instanceFollowRedirects = false
+                if (conn.responseCode in 200..299) {
+                    val responseText = conn.inputStream.use { input ->
+                        val output = ByteArrayOutputStream()
+                        val buffer = ByteArray(4 * 1024)
+                        var total = 0
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            total += count
+                            if (total > MAX_API_RESPONSE_BYTES) break
+                            output.write(buffer, 0, count)
+                        }
+                        output.toString(Charsets.UTF_8.name())
+                    }
                     val results = mutableMapOf<String, String>()
                     val json = runCatching { JSONObject(responseText) }.getOrNull()
                     if (json != null) {
@@ -252,9 +273,12 @@ class CustomWidgetRepository(private val context: Context? = null) {
         private const val KEY_WIDGETS = "saved_custom_widgets"
         private const val MAX_SAVED_WIDGETS = 50
         private const val MAX_STATE_VALUE_LENGTH = 2048
+        private const val MAX_API_RESPONSE_BYTES = 64 * 1024
+        private val VARIABLE_REGEX = Regex("\\{([a-zA-Z0-9_]+)\\}")
+        private val WHITESPACE_REGEX = Regex("\\s+")
 
         fun interpolate(template: String, state: Map<String, String>): String {
-            return Regex("\\{([a-zA-Z0-9_]+)\\}").replace(template) { match ->
+            return VARIABLE_REGEX.replace(template) { match ->
                 val key = match.groupValues[1]
                 state[key] ?: match.value
             }
@@ -264,7 +288,7 @@ class CustomWidgetRepository(private val context: Context? = null) {
             val resolved = interpolate(expr, state).trim()
             if (resolved.isEmpty()) return ""
             return try {
-                val clean = resolved.replace("\\s+".toRegex(), "")
+                val clean = resolved.replace(WHITESPACE_REGEX, "")
                 val result = MathParser(clean).parse()
                 result.formatClean()
             } catch (_: Exception) {
@@ -344,10 +368,11 @@ class CustomWidgetRepository(private val context: Context? = null) {
         }
 
         private fun Double.formatClean(): String {
+            if (!this.isFinite()) return "0"
             return if (this % 1.0 == 0.0) {
                 this.toLong().toString()
             } else {
-                String.format(java.util.Locale.US, "%.2f", this)
+                String.format(Locale.US, "%.2f", this)
             }
         }
     }

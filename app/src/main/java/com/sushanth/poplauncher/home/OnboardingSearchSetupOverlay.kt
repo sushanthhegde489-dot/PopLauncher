@@ -137,7 +137,7 @@ fun OnboardingSearchSetupOverlay(
                 }
 
                 Text(
-                    text = "Select what you want to search. All optional sources are turned OFF by default — permission will be requested ONLY for the features you turn ON.",
+                    text = "Select what you want to search. Permission will be requested ONLY for the features you keep turned ON.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -183,7 +183,7 @@ fun OnboardingSearchSetupOverlay(
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
-                // 7. Photos & Videos
+                // 5. Photos & Videos
                 OnboardingProviderRow(
                     title = "Photos & Videos",
                     permissionExplanation = "Requires Media / Photos permission to search photos and videos locally.",
@@ -193,7 +193,7 @@ fun OnboardingSearchSetupOverlay(
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
-                // 8. AI Overview
+                // 6. AI Overview
                 OnboardingProviderRow(
                     title = "AI Overview",
                     permissionExplanation = "Generates AI summaries when local search has no matches.",

@@ -3,6 +3,10 @@ package com.sushanth.poplauncher.ui.theme
 import androidx.compose.ui.graphics.Color
 import androidx.core.graphics.toColorInt
 import java.util.Locale
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.pow
+import kotlin.math.roundToInt
 
 // ============================================================
 // MAROON PALETTE
@@ -48,33 +52,6 @@ val VioletSecondary = Color(0xFFE0AAFF)
 val CoralPrimary = Color(0xFFFF6B6B)
 val CoralSecondary = Color(0xFFFF9E9E)
 
-val NothingWhite = Color(0xFFFFFFFF)
-val NothingRed = Color(0xFFD71921)
-val NothingDarkSurface = Color(0xFF141414)
-val NothingBorder = Color(0xFF2E2E2E)
-
-
-// ============================================================
-// CUSTOM ACCENT COLOR SYSTEM
-// ============================================================
-
-var CustomThemePrimary: Color = Color(0xFFFF007F) // Vibrant Raspberry default custom
-var CustomThemeSecondary: Color = Color(0xFFFF66B2)
-var CustomThemeTertiary: Color = Color(0xFFFF3399)
-
-val PresetCustomSwatches = listOf(
-    Color(0xFFFF007F), // Raspberry Pink
-    Color(0xFFFF5722), // Deep Orange
-    Color(0xFF9C27B0), // Royal Purple
-    Color(0xFF2979FF), // Electric Indigo
-    Color(0xFF00E676), // Neon Mint
-    Color(0xFFFFD700), // Gold
-    Color(0xFFFF1493), // Deep Pink
-    Color(0xFF00BCD4), // Turquoise
-    Color(0xFFE040FB), // Magenta Neon
-    Color(0xFF76FF03)  // Lime Electric
-)
-
 fun parseHexColor(hex: String, fallback: Color = Color(0xFFFF007F)): Color {
     return try {
         val cleanHex = hex.trim().removePrefix("#")
@@ -89,25 +66,12 @@ fun parseHexColor(hex: String, fallback: Color = Color(0xFFFF007F)): Color {
 }
 
 fun colorToHex(color: Color): String {
-    val r = (color.red * 255).toInt()
-    val g = (color.green * 255).toInt()
-    val b = (color.blue * 255).toInt()
+    val r = (color.red * 255f).roundToInt().coerceIn(0, 255)
+    val g = (color.green * 255f).roundToInt().coerceIn(0, 255)
+    val b = (color.blue * 255f).roundToInt().coerceIn(0, 255)
     return String.format(Locale.US, "#%02X%02X%02X", r, g, b)
 }
 
-fun updateCustomThemeColor(newColor: Color) {
-    CustomThemePrimary = newColor
-    CustomThemeSecondary = newColor.copy(alpha = 0.85f)
-    CustomThemeTertiary = newColor.copy(alpha = 0.70f)
-}
-
-
-// ============================================================
-// SOLID LAUNCHER BACKGROUNDS
-// ============================================================
-
-val LauncherDarkBg = Color(0xFF10090C)
-val LauncherLightBg = Color(0xFFFFF8F9)
 
 // ============================================================
 // DARK MODE
@@ -144,44 +108,41 @@ val LightOutlineVariant = Color(0xFFD9C2C8)
 
 
 // ============================================================
-// ACCENT & CHART COLORS
+// ACCENT & PARTICLE COLORS
 // ============================================================
 
-val ChartMaroon = Color(0xFF8B1E3F)
-val ChartRose = Color(0xFFD94F70)
 val ChartCoral = Color(0xFFE97856)
 val ChartAmber = Color(0xFFE5A83B)
-val ChartPurple = Color(0xFF8E5BB7)
-val ChartBlue = Color(0xFF5B7FC4)
-val ChartPink = Color(0xFFE58BA5)
+
+private val DarkContrastCandidate = Color(0xFF181516)
 
 fun bestOnColor(background: Color): Color {
     val whiteContrast = contrastRatio(background, Color.White)
-    val dark = Color(0xFF181516)
-    val darkContrast = contrastRatio(background, dark)
-    return if (whiteContrast >= darkContrast) Color.White else dark
+    val darkContrast = contrastRatio(background, DarkContrastCandidate)
+    return if (whiteContrast >= darkContrast) Color.White else DarkContrastCandidate
 }
 
 fun contrastRatio(first: Color, second: Color): Float {
     val l1 = relativeLuminance(first)
     val l2 = relativeLuminance(second)
-    val lighter = kotlin.math.max(l1, l2)
-    val darker = kotlin.math.min(l1, l2)
+    val lighter = max(l1, l2)
+    val darker = min(l1, l2)
     return (lighter + 0.05f) / (darker + 0.05f)
 }
 
 fun blend(foreground: Color, background: Color, amount: Float): Color {
     val a = amount.coerceIn(0f, 1f)
+    val inv = 1f - a
     return Color(
-        red = foreground.red * a + background.red * (1f - a),
-        green = foreground.green * a + background.green * (1f - a),
-        blue = foreground.blue * a + background.blue * (1f - a),
+        red = foreground.red * a + background.red * inv,
+        green = foreground.green * a + background.green * inv,
+        blue = foreground.blue * a + background.blue * inv,
         alpha = 1f
     )
 }
 
 private fun relativeLuminance(color: Color): Float {
     fun linear(channel: Float): Float =
-        if (channel <= 0.03928f) channel / 12.92f else ((channel + 0.055f) / 1.055f).let { it * it * it }
+        if (channel <= 0.03928f) channel / 12.92f else ((channel + 0.055f) / 1.055f).pow(2.4f)
     return 0.2126f * linear(color.red) + 0.7152f * linear(color.green) + 0.0722f * linear(color.blue)
 }

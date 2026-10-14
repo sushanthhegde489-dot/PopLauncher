@@ -1,5 +1,6 @@
 package com.sushanth.poplauncher.data.indexing
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.os.Build
@@ -16,13 +17,24 @@ data class SettingShortcutItem(
     val subtitle: String,
     val action: String,
     val keywords: List<String>
-)
+) {
+    internal val lowerTitle: String = title.lowercase()
+    internal val lowerSubtitle: String = subtitle.lowercase()
+    internal val tokenizedKeywords: List<List<String>> = keywords.map { kw ->
+        kw.lowercase().split(WHITESPACE_REGEX).filter { it.isNotBlank() }
+    }
+
+    companion object {
+        internal val WHITESPACE_REGEX = Regex("\\s+")
+    }
+}
 
 class SettingsShortcutSearchProvider : SearchProvider {
 
     override val type: SearchType = SearchType.APP
     override val displayName: String = "System Settings"
-    @android.annotation.SuppressLint("InlinedApi")
+
+    @SuppressLint("InlinedApi")
     private val notificationAction = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         Settings.ACTION_ALL_APPS_NOTIFICATION_SETTINGS
     } else {
@@ -52,36 +64,35 @@ class SettingsShortcutSearchProvider : SearchProvider {
         SettingShortcutItem("setting:main", "Android System Settings", "All device settings", Settings.ACTION_SETTINGS, listOf("settings", "system settings", "configure"))
     )
 
+    private val prebuiltEntities: Map<String, SearchEntity> = shortcuts.associate { it.id to createEntity(it) }
+
     override suspend fun isAvailable(context: Context): Boolean = true
 
     override suspend fun index(context: Context): List<SearchEntity> =
-        withContext(Dispatchers.IO) {
-            shortcuts.map { createEntity(it) }
-        }
+        prebuiltEntities.values.toList()
 
     override suspend fun search(query: String, context: Context): List<SearchEntity> =
-        withContext(Dispatchers.IO) {
+        withContext(Dispatchers.Default) {
             val q = query.trim().lowercase()
             if (q.isEmpty()) return@withContext emptyList()
 
-            shortcuts.filter { item ->
-                // Requirement 1 & 6: Hidden apps and private space must work ONLY when fully searched by their name
-                if (item.id == "system:private_space") {
-                    q == "private space" || q == "privatespace"
-                } else if (item.id == "system:hidden_apps") {
-                    q == "hidden apps" || q == "hiddenapps"
-                } else {
-                    val titleMatch = item.title.lowercase().contains(q)
-                    val subtitleMatch = item.subtitle.lowercase().contains(q)
-                    // Keyword match: tokenized word boundary matching
-                    val keywordMatch = item.keywords.any { kw ->
-                        val queryWords = q.split("\\s+".toRegex()).filter { it.isNotBlank() }
-                        val kwWords = kw.split("\\s+".toRegex()).filter { it.isNotBlank() }
-                        queryWords.all { qw -> kwWords.any { kw -> kw.startsWith(qw) } }
+            val queryWords = q.split(SettingShortcutItem.WHITESPACE_REGEX).filter { it.isNotBlank() }
+
+            shortcuts.mapNotNull { item ->
+                val matches = when (item.id) {
+                    // Hidden apps and private space must work ONLY when fully searched by their name
+                    "system:private_space" -> q == "private space" || q == "privatespace"
+                    "system:hidden_apps" -> q == "hidden apps" || q == "hiddenapps"
+                    else -> {
+                        item.lowerTitle.contains(q) ||
+                            item.lowerSubtitle.contains(q) ||
+                            (queryWords.isNotEmpty() && item.tokenizedKeywords.any { kwWords ->
+                                queryWords.all { qw -> kwWords.any { kw -> kw.startsWith(qw) } }
+                            })
                     }
-                    titleMatch || subtitleMatch || keywordMatch
                 }
-            }.map { createEntity(it) }
+                if (matches) prebuiltEntities[item.id] else null
+            }
         }
 
     private fun createEntity(item: SettingShortcutItem): SearchEntity {

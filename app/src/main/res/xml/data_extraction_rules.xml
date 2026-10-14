@@ -1,15 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <data-extraction-rules>
-    <!-- Exclude search index from cloud backup for privacy -->
+    <!-- Exclude search index and device-specific cache data from cloud backup for privacy -->
     <cloud-backup>
+        <exclude domain="file" path="datastore/pop_search_index.preferences_pb" />
+        <exclude domain="sharedpref" path="pop_launcher_custom_widget_catalog.xml" />
+        <exclude domain="sharedpref" path="private_space_helper_prefs.xml" />
         <exclude domain="sharedpref" path="pop_search_index.xml" />
         <exclude domain="sharedpref" path="conversation_cache.xml" />
         <exclude domain="sharedpref" path="contact_cache.xml" />
         <exclude domain="database" path="custom_widgets.db" />
     </cloud-backup>
 
-    <!-- Exclude sensitive data from device transfer for security -->
+    <!-- Exclude sensitive and device-specific data from device transfer for security -->
     <device-transfer>
+        <exclude domain="file" path="datastore/pop_search_index.preferences_pb" />
+        <exclude domain="sharedpref" path="pop_launcher_custom_widget_catalog.xml" />
+        <exclude domain="sharedpref" path="private_space_helper_prefs.xml" />
         <exclude domain="sharedpref" path="pop_search_index.xml" />
         <exclude domain="sharedpref" path="conversation_cache.xml" />
         <exclude domain="sharedpref" path="contact_cache.xml" />

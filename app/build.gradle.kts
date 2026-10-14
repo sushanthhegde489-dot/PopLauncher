@@ -11,8 +11,8 @@ android {
         applicationId = "com.sushanth.poplauncher"
         minSdk = 26
         targetSdk = 36
-        versionCode = 13
-        versionName = "0.1.3"
+        versionCode = 15
+        versionName = "0.1.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -49,21 +49,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            val envKeys = listOf(
-                "PLAY_UPLOAD_STORE_FILE",
-                "PLAY_UPLOAD_STORE_PASSWORD",
-                "PLAY_UPLOAD_KEY_ALIAS",
-                "PLAY_UPLOAD_KEY_PASSWORD"
-            )
-            var hasPlaySigning = true
-            for (key in envKeys) {
-                if (providers.environmentVariable(key).orNull.isNullOrBlank()) {
-                    hasPlaySigning = false
-                    break
-                }
-            }
-            if (hasPlaySigning) {
-                signingConfig = signingConfigs.getByName("playRelease")
+            val playReleaseSigning = signingConfigs.getByName("playRelease")
+            if (playReleaseSigning.storeFile != null) {
+                signingConfig = playReleaseSigning
             }
         }
     }
@@ -89,7 +77,6 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.coil.compose)
-    implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.compose.material.icons.extended)
     testImplementation(libs.junit)

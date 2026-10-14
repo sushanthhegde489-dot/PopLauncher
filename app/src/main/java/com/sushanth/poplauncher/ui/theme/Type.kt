@@ -89,5 +89,3 @@ val PopLauncherTypography = Typography(
         letterSpacing = 0.5.sp
     )
 )
-
-val DotMatrixFontFamily = FontFamily.Monospace

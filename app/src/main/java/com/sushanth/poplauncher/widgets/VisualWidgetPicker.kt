@@ -5,7 +5,6 @@ import android.appwidget.AppWidgetProviderInfo
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.drawable.Drawable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -24,11 +23,11 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Add
@@ -59,23 +58,29 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.sushanth.poplauncher.ui.theme.LocalIsMonochromeTheme
+import com.sushanth.poplauncher.util.drawableToBitmap
 import com.sushanth.poplauncher.widgets.custom.CatalogStatus
-import com.sushanth.poplauncher.widgets.custom.CustomWidgetRepository
 import com.sushanth.poplauncher.widgets.custom.CustomWidgetCatalogRepository
+import com.sushanth.poplauncher.widgets.custom.CustomWidgetRepository
 import com.sushanth.poplauncher.widgets.custom.PublishedCustomWidget
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.net.URI
+import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
+import java.net.URI
 
 private enum class PickerMode { ANDROID, CUSTOM }
 
@@ -101,6 +106,7 @@ fun VisualWidgetPickerScreen(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
+    val isMonochrome = LocalIsMonochromeTheme.current
     var mode by remember { mutableStateOf(PickerMode.ANDROID) }
     var widgetList by remember { mutableStateOf<List<VisualWidgetInfo>>(emptyList()) }
     var filterQuery by remember { mutableStateOf("") }
@@ -111,8 +117,8 @@ fun VisualWidgetPickerScreen(
     val installed by customWidgetRepository.customWidgets.collectAsState()
     val scope = rememberCoroutineScope()
 
-    LaunchedEffect(Unit) {
-        widgetList = withContext(Dispatchers.IO) { loadAllVisualWidgets(context, isMonochrome = false) }
+    LaunchedEffect(isMonochrome) {
+        widgetList = withContext(Dispatchers.IO) { loadAllVisualWidgets(context, isMonochrome = isMonochrome) }
     }
 
     LaunchedEffect(mode) {
@@ -120,16 +126,16 @@ fun VisualWidgetPickerScreen(
     }
 
     val filteredAndroidWidgets = remember(widgetList, filterQuery, selectedCategory) {
+        val query = filterQuery.trim().lowercase()
         widgetList.filter { item ->
             val categoryMatch = (selectedCategory == WidgetCategory.ALL) || (item.category == selectedCategory)
-            val query = filterQuery.trim().lowercase()
             val queryMatch = query.isBlank() || item.appLabel.lowercase().contains(query) || item.widgetLabel.lowercase().contains(query) || item.providerInfo.provider.packageName.lowercase().contains(query)
             categoryMatch && queryMatch
         }
     }
     val visibleCustomWidgets = remember(catalog, ignoredIds, filterQuery) {
+        val q = filterQuery.trim().lowercase()
         catalog.asSequence().filterNot { it.id in ignoredIds }.filter {
-            val q = filterQuery.trim().lowercase()
             q.isBlank() || it.name.lowercase().contains(q) || it.description.lowercase().contains(q)
         }.toList()
     }
@@ -164,8 +170,8 @@ fun VisualWidgetPickerScreen(
                     colors = TextFieldDefaults.colors(
                         focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
                         unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-                        unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent
                     ),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -257,7 +263,6 @@ fun VisualWidgetPickerScreen(
     }
 }
 
-
 @Composable
 private fun PublishedWidgetIcon(published: PublishedCustomWidget) {
     var bitmap by remember(published.thumbnailUrl) { mutableStateOf<ImageBitmap?>(null) }
@@ -268,8 +273,12 @@ private fun PublishedWidgetIcon(published: PublishedCustomWidget) {
         modifier = Modifier.size(48.dp).background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(12.dp)),
         contentAlignment = Alignment.Center
     ) {
-        if (bitmap != null) Image(bitmap!!, contentDescription = published.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().padding(4.dp))
-        else Text(published.icon ?: "□", fontSize = 22.sp)
+        val loadedBitmap = bitmap
+        if (loadedBitmap != null) {
+            Image(loadedBitmap, contentDescription = published.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().padding(4.dp))
+        } else {
+            Text(published.icon ?: "□", fontSize = 22.sp)
+        }
     }
     Spacer(Modifier.size(12.dp))
 }
@@ -285,7 +294,7 @@ private fun loadThumbnail(url: String): ImageBitmap? {
         try {
             if (connection.responseCode !in 200..299) return null
             val bytes = connection.inputStream.use { input ->
-                val output = java.io.ByteArrayOutputStream()
+                val output = ByteArrayOutputStream()
                 val buffer = ByteArray(4 * 1024)
                 var total = 0
                 while (true) {
@@ -361,11 +370,11 @@ private fun CustomWidgetCatalogRow(
 
 @Composable
 private fun EmptyPickerState(modifier: Modifier = Modifier, title: String, body: String) {
-    Box(modifier.navigationBarsPadding(), contentAlignment = Alignment.Center) {
+    Box(modifier, contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Icon(Icons.Outlined.Widgets, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(36.dp))
             Text(title, style = MaterialTheme.typography.titleMedium)
-            Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
         }
     }
 }
@@ -377,7 +386,7 @@ private fun WidgetPreviewCard(widget: VisualWidgetInfo, onClick: () -> Unit) {
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(16.dp))
             .clickable(
-                role = androidx.compose.ui.semantics.Role.Button,
+                role = Role.Button,
                 onClickLabel = "Add ${widget.widgetLabel} from ${widget.appLabel} to home screen",
                 onClick = onClick
             )
@@ -434,5 +443,3 @@ private fun categorizeWidget(info: AppWidgetProviderInfo, appLabel: String, widg
 }
 
 private fun String.containsAny(vararg keywords: String): Boolean = keywords.any(::contains)
-
-private fun drawableToBitmap(drawable: Drawable, isMonochrome: Boolean = false): Bitmap? = com.sushanth.poplauncher.util.drawableToBitmap(drawable, isMonochrome)

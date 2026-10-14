@@ -2,6 +2,7 @@ package com.sushanth.poplauncher.widgets.custom
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.core.content.edit
 import androidx.core.content.pm.PackageInfoCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -9,6 +10,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URI
 
@@ -95,7 +97,10 @@ data class WidgetManifest(
             )
         }
 
-        fun isHttpsUrl(value: String): Boolean = runCatching { URI(value).scheme.equals("https", true) && !URI(value).host.isNullOrBlank() }.getOrDefault(false)
+        fun isHttpsUrl(value: String): Boolean = runCatching {
+            val uri = URI(value)
+            uri.scheme.equals("https", true) && !uri.host.isNullOrBlank()
+        }.getOrDefault(false)
 
         private val ID_REGEX = Regex("[a-z0-9][a-z0-9._-]{0,63}")
         private const val MAX_NAME_LENGTH = 96
@@ -138,8 +143,8 @@ class CustomWidgetCatalogRepository(
         try {
             val body = fetchText(manifestUrl, WidgetManifest.MAX_MANIFEST_BYTES)
             val manifest = WidgetManifest.fromJson(JSONObject(body), appVersionCode, URI(manifestUrl).host)
-            if (manifest == null) throw IllegalArgumentException("Unsupported or invalid widget manifest")
-            prefs.edit().putString(KEY_CACHED_MANIFEST, body).apply()
+                ?: throw IllegalArgumentException("Unsupported or invalid widget manifest")
+            prefs.edit { putString(KEY_CACHED_MANIFEST, body) }
             _catalog.value = manifest.widgets
             _status.value = CatalogStatus.READY_NETWORK
         } catch (_: Exception) {
@@ -151,18 +156,21 @@ class CustomWidgetCatalogRepository(
     fun ignore(id: String) {
         val next = _ignoredIds.value + id
         _ignoredIds.value = next
-        prefs.edit().putStringSet(KEY_IGNORED, next).apply()
+        prefs.edit { putStringSet(KEY_IGNORED, next) }
     }
 
     fun restore(id: String) {
         val next = _ignoredIds.value - id
         _ignoredIds.value = next
-        prefs.edit().putStringSet(KEY_IGNORED, next).apply()
+        prefs.edit { putStringSet(KEY_IGNORED, next) }
     }
 
     private fun loadCachedOrBundled() {
+        val allowedHost = runCatching { URI(manifestUrl).host }.getOrNull()
         val cached = prefs.getString(KEY_CACHED_MANIFEST, null)
-        val cachedManifest = cached?.let { runCatching { WidgetManifest.fromJson(JSONObject(it), appVersionCode, runCatching { URI(manifestUrl).host }.getOrNull()) }.getOrNull() }
+        val cachedManifest = cached?.let {
+            runCatching { WidgetManifest.fromJson(JSONObject(it), appVersionCode, allowedHost) }.getOrNull()
+        }
         if (cachedManifest != null) {
             _catalog.value = cachedManifest.widgets
             _status.value = CatalogStatus.READY_CACHE
@@ -171,7 +179,9 @@ class CustomWidgetCatalogRepository(
 
         val bundled = runCatching {
             appContext.assets.open("custom-widgets/manifest.json").bufferedReader().use { it.readText() }
-        }.getOrNull()?.let { runCatching { WidgetManifest.fromJson(JSONObject(it), appVersionCode, runCatching { URI(manifestUrl).host }.getOrNull()) }.getOrNull() }
+        }.getOrNull()?.let {
+            runCatching { WidgetManifest.fromJson(JSONObject(it), appVersionCode, allowedHost) }.getOrNull()
+        }
         if (bundled != null) {
             _catalog.value = bundled.widgets
             _status.value = CatalogStatus.READY_BUNDLED
@@ -185,37 +195,32 @@ class CustomWidgetCatalogRepository(
         connection.requestMethod = "GET"
         connection.instanceFollowRedirects = false
         connection.setRequestProperty("Accept", "application/json")
-        
-        // Add ETag/If-Modified-Since caching headers logic here if possible
-        val etag = prefs.getString(KEY_ETAG, null)
-        val lastModified = prefs.getString(KEY_LAST_MODIFIED, null)
-        if (etag != null) {
-            connection.setRequestProperty("If-None-Match", etag)
-        }
-        if (lastModified != null) {
-            connection.setRequestProperty("If-Modified-Since", lastModified)
+
+        val cachedManifest = prefs.getString(KEY_CACHED_MANIFEST, null)
+        if (!cachedManifest.isNullOrBlank()) {
+            prefs.getString(KEY_ETAG, null)?.let { connection.setRequestProperty("If-None-Match", it) }
+            prefs.getString(KEY_LAST_MODIFIED, null)?.let { connection.setRequestProperty("If-Modified-Since", it) }
         }
 
         try {
-            if (connection.responseCode == HttpURLConnection.HTTP_NOT_MODIFIED) {
-                return prefs.getString(KEY_CACHED_MANIFEST, "") ?: ""
+            if (connection.responseCode == HttpURLConnection.HTTP_NOT_MODIFIED && !cachedManifest.isNullOrBlank()) {
+                return cachedManifest
             }
             if (connection.responseCode !in 200..299) error("HTTP ${connection.responseCode}")
-            
+
             val newETag = connection.getHeaderField("ETag")
             val newLastModified = connection.getHeaderField("Last-Modified")
-            prefs.edit().apply {
+            prefs.edit {
                 putString(KEY_ETAG, newETag)
                 putString(KEY_LAST_MODIFIED, newLastModified)
-            }.apply()
-            
-            val input = connection.inputStream
-            return input.use {
-                val output = java.io.ByteArrayOutputStream()
+            }
+
+            return connection.inputStream.use { input ->
+                val output = ByteArrayOutputStream()
                 val buffer = ByteArray(8 * 1024)
                 var total = 0
                 while (true) {
-                    val count = it.read(buffer)
+                    val count = input.read(buffer)
                     if (count < 0) break
                     total += count
                     if (total > maxBytes) error("Manifest too large")
@@ -228,7 +233,7 @@ class CustomWidgetCatalogRepository(
         }
     }
 
-    private fun loadIgnoredIds(): Set<String> = prefs.getStringSet(KEY_IGNORED, emptySet()) ?: emptySet()
+    private fun loadIgnoredIds(): Set<String> = prefs.getStringSet(KEY_IGNORED, emptySet())?.toSet() ?: emptySet()
 
     private fun isConfiguredUrl(url: String): Boolean =
         WidgetManifest.isHttpsUrl(url) && !url.contains("YOUR_GITHUB_USERNAME", true) && !url.contains("YOUR_REPO", true)

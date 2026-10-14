@@ -26,6 +26,7 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Forum
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -65,11 +66,12 @@ fun ConversationAppsScreen(
     val apps by appRepository.installedApps.collectAsState()
     val settings by settingsRepository.settings.collectAsState()
     val allowedPackages = settings.conversationAppPackages
+    val isMonochrome = LocalIsMonochromeTheme.current
 
     var filterQuery by remember { mutableStateOf("") }
 
-    val allPackages = remember(apps) {
-        apps.map { it.packageName }.toSet()
+    val allUniqueIds = remember(apps) {
+        apps.map { it.uniqueId }.toSet()
     }
 
     val uniqueApps = remember(apps, allowedPackages) {
@@ -172,10 +174,8 @@ fun ConversationAppsScreen(
                     OutlinedButton(
                         onClick = {
                             if (allowedPackages == null) {
-                                // Clear all
                                 settingsRepository.setConversationApps(emptySet())
                             } else {
-                                // Enable all
                                 settingsRepository.setConversationApps(null)
                             }
                         },
@@ -201,7 +201,7 @@ fun ConversationAppsScreen(
                     .padding(paddingValues),
                 contentAlignment = Alignment.Center
             ) {
-                androidx.compose.material3.CircularProgressIndicator(
+                CircularProgressIndicator(
                     color = MaterialTheme.colorScheme.primary,
                     strokeWidth = 2.5.dp
                 )
@@ -244,79 +244,77 @@ fun ConversationAppsScreen(
             ) {
                 items(filteredApps, key = { it.uniqueId }) { app ->
                     val isEnabled = allowedPackages == null || app.isContainedIn(allowedPackages)
-                    val allUniqueIds = remember(apps) { apps.map { it.uniqueId }.toSet() }
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(MaterialTheme.colorScheme.surface)
-                        .clickable {
-                            settingsRepository.toggleConversationApp(app.uniqueId, allUniqueIds)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(MaterialTheme.colorScheme.surface)
+                            .clickable {
+                                settingsRepository.toggleConversationApp(app.uniqueId, allUniqueIds)
+                            }
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val bitmap = remember(app.icon, isMonochrome) {
+                            app.icon?.let { drawableToBitmap(it, isMonochrome) }
                         }
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    val isMonochrome = LocalIsMonochromeTheme.current
-                    val bitmap = remember(app.icon, isMonochrome) {
-                        app.icon?.let { drawableToBitmap(it, isMonochrome) }
-                    }
-                    if (bitmap != null) {
-                        Image(
-                            bitmap = bitmap.asImageBitmap(),
-                            contentDescription = app.label,
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                        )
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-                            contentAlignment = Alignment.Center
-                        ) {
+                        if (bitmap != null && !bitmap.isRecycled) {
+                            Image(
+                                bitmap = bitmap.asImageBitmap(),
+                                contentDescription = app.label,
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = app.label.take(1).uppercase(),
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = app.label.take(1).uppercase(),
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                text = app.label,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = if (app.isClone) "Dual / Cloned App Shortcuts" else "Direct App Shortcuts",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (app.isClone) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1
                             )
                         }
-                    }
 
-                    Spacer(modifier = Modifier.width(12.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
 
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = app.label,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = if (app.isClone) "Dual / Cloned App Shortcuts" else "Direct App Shortcuts",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (app.isClone) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1
+                        Switch(
+                            checked = isEnabled,
+                            onCheckedChange = {
+                                settingsRepository.toggleConversationApp(app.uniqueId, allUniqueIds)
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                                checkedTrackColor = MaterialTheme.colorScheme.primary
+                            )
                         )
                     }
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    Switch(
-                        checked = isEnabled,
-                        onCheckedChange = {
-                            settingsRepository.toggleConversationApp(app.uniqueId, allUniqueIds)
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                            checkedTrackColor = MaterialTheme.colorScheme.primary
-                        )
-                    )
                 }
             }
         }
     }
-}
 }

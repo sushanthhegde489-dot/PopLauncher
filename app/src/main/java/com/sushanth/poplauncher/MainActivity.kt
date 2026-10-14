@@ -1,8 +1,10 @@
 package com.sushanth.poplauncher
 
 import android.Manifest
+import android.app.role.RoleManager
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProviderInfo
+import android.content.ActivityNotFoundException
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.LauncherApps
@@ -11,7 +13,10 @@ import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Process
+import android.os.UserHandle
 import android.provider.Settings
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -53,6 +58,8 @@ import com.sushanth.poplauncher.widgets.VisualWidgetPickerScreen
 import com.sushanth.poplauncher.widgets.WidgetManager
 import com.sushanth.poplauncher.widgets.custom.CustomWidgetCatalogRepository
 import com.sushanth.poplauncher.widgets.custom.CustomWidgetRepository
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 enum class LauncherScreen {
@@ -91,6 +98,7 @@ class MainActivity : ComponentActivity() {
     private var pendingWidgetId: Int = AppWidgetManager.INVALID_APPWIDGET_ID
     private var pendingWidgetInfo: AppWidgetProviderInfo? = null
     private var pendingPinItemRequest: LauncherApps.PinItemRequest? = null
+    private var packageRefreshJob: Job? = null
     private val currentScreen = mutableStateOf(LauncherScreen.HOME)
 
     // Widget Bind Launcher (For permission dialog when bindAppWidgetIdIfAllowed returns false)
@@ -157,14 +165,69 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestMultiplePermissions()
     ) {
         searchRepository.triggerReindex()
-        if (pendingAllFilesRequest) {
-            pendingAllFilesRequest = false
-            if (needsAllFilesAccess()) requestAllFilesAccess()
-        }
     }
 
-    /** Set when a runtime request should be followed by the All files access screen. */
-    private var pendingAllFilesRequest = false
+    // Default Launcher Role/Settings Launcher
+    private val defaultLauncherLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        searchRepository.triggerReindexIfDue()
+    }
+
+    fun requestSetDefaultLauncher() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val roleManager = getSystemService(RoleManager::class.java)
+            if (roleManager?.isRoleAvailable(RoleManager.ROLE_HOME) == true && !roleManager.isRoleHeld(RoleManager.ROLE_HOME)) {
+                val intent = roleManager.createRequestRoleIntent(RoleManager.ROLE_HOME)
+                try {
+                    // Do NOT add FLAG_ACTIVITY_NEW_TASK for RoleManager.
+                    // RoleManager requires being launched via startActivityForResult or ActivityResultLauncher without FLAG_ACTIVITY_NEW_TASK!
+                    defaultLauncherLauncher.launch(intent)
+                    return
+                } catch (_: Exception) {}
+            }
+        }
+
+        // Fallback 1: Settings.ACTION_HOME_SETTINGS
+        try {
+            val intent = Intent(Settings.ACTION_HOME_SETTINGS)
+            defaultLauncherLauncher.launch(intent)
+            return
+        } catch (_: Exception) {}
+
+        // Fallback 2: Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS
+        try {
+            val intent = Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)
+            defaultLauncherLauncher.launch(intent)
+            return
+        } catch (_: Exception) {}
+
+        // Fallback 3: Settings.ACTION_APPLICATION_DETAILS_SETTINGS
+        try {
+            val intent = Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                "package:$packageName".toUri()
+            )
+            defaultLauncherLauncher.launch(intent)
+            return
+        } catch (_: Exception) {}
+
+        // Fallback 4: Intent.CATEGORY_HOME
+        try {
+            val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_HOME)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            startActivity(homeIntent)
+        } catch (_: Exception) {
+            try {
+                val settingsIntent = Intent(Settings.ACTION_SETTINGS).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                startActivity(settingsIntent)
+            } catch (_: Exception) {}
+        }
+    }
 
     fun openDialer(phoneNumber: String) {
         if (phoneNumber.isBlank()) return
@@ -181,9 +244,10 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val hasImg = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
             val hasVid = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED
+            val hasAud = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED
             val hasVisual = Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
                     ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) == PackageManager.PERMISSION_GRANTED
-            return if (hasImg || hasVid || hasVisual) FileAccessState.MEDIASTORE_ONLY else FileAccessState.DENIED
+            return if (hasImg || hasVid || hasAud || hasVisual) FileAccessState.MEDIASTORE_ONLY else FileAccessState.DENIED
         }
         val hasStorage = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
         return if (hasStorage) FileAccessState.ALL_FILES else FileAccessState.DENIED
@@ -206,17 +270,12 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Request permissions for Contacts, Photos/Media, Storage, and Notifications.
+     * Request permissions for enabled search providers.
      */
     fun requestSearchPermissions() {
         val enabled = settingsRepository.settings.value.enabledProviders
         requestPermissionsForProviders(enabled)
     }
-
-    /**
-     * Scoped MediaStore search on Android 11+ does not require MANAGE_EXTERNAL_STORAGE.
-     */
-    fun needsAllFilesAccess(): Boolean = false
 
     /**
      * Request standard runtime storage/media permissions for file search.
@@ -227,23 +286,16 @@ class MainActivity : ComponentActivity() {
 
     /**
      * Requests ONLY the specific permissions required for the provided set of SearchTypes.
-     * When file search is included, follows up with the All files access screen if needed.
      */
     fun requestPermissionsForProviders(providers: Set<SearchType>) {
-        val neededPermissions = mutableListOf<String>()
+        val neededPermissions = mutableSetOf<String>()
 
         for (provider in providers) {
-            val missing = getMissingPermissionsForProvider(provider)
-            neededPermissions.addAll(missing)
+            neededPermissions.addAll(getMissingPermissionsForProvider(provider))
         }
 
-        val wantsAllFiles = SearchType.FILE in providers && needsAllFilesAccess()
-        val distinctNeeded = neededPermissions.distinct()
-        if (distinctNeeded.isNotEmpty()) {
-            pendingAllFilesRequest = wantsAllFiles
-            permissionLauncher.launch(distinctNeeded.toTypedArray())
-        } else if (wantsAllFiles) {
-            requestAllFilesAccess()
+        if (neededPermissions.isNotEmpty()) {
+            permissionLauncher.launch(neededPermissions.toTypedArray())
         }
     }
 
@@ -259,12 +311,14 @@ class MainActivity : ComponentActivity() {
                 }
             }
             SearchType.FILE -> {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) != PackageManager.PERMISSION_GRANTED) {
+                if (getFileAccessState() == FileAccessState.DENIED) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                         missing.add(Manifest.permission.READ_MEDIA_IMAGES)
+                        missing.add(Manifest.permission.READ_MEDIA_VIDEO)
+                        missing.add(Manifest.permission.READ_MEDIA_AUDIO)
+                    } else {
+                        missing.add(Manifest.permission.READ_EXTERNAL_STORAGE)
                     }
-                } else if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-                    missing.add(Manifest.permission.READ_EXTERNAL_STORAGE)
                 }
             }
             SearchType.MEDIA -> {
@@ -281,13 +335,6 @@ class MainActivity : ComponentActivity() {
             else -> {}
         }
         return missing
-    }
-
-    /**
-     * Launch permission request for file search
-     */
-    fun requestAllFilesAccess() {
-        requestPermissionForProvider(SearchType.FILE)
     }
 
     /**
@@ -334,24 +381,16 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             val apps = appRepository.refreshApps()
             if (apps.isNotEmpty()) {
-                settingsRepository.cleanupUninstalled(apps.map { it.packageName }.toSet())
+                settingsRepository.cleanupUninstalled(apps.mapTo(HashSet()) { it.packageName })
             }
             if (settingsRepository.settings.value.hasCompletedOnboarding) {
-                val enabled = settingsRepository.settings.value.enabledProviders
-                val neededPermissions = mutableListOf<String>()
-                for (provider in enabled) {
-                    neededPermissions.addAll(getMissingPermissionsForProvider(provider))
-                }
-                val distinctNeeded = neededPermissions.distinct()
-                if (distinctNeeded.isNotEmpty()) {
-                    permissionLauncher.launch(distinctNeeded.toTypedArray())
-                }
+                requestSearchPermissions()
             }
         }
 
         handlePinItemRequest(intent)
 
-        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
+        window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
         window.setBackgroundDrawable(Color.TRANSPARENT.toDrawable())
 
         setContent {
@@ -435,33 +474,44 @@ class MainActivity : ComponentActivity() {
         lastFileAccessState = fileAccess
         if (changed) {
             searchRepository.triggerReindex()
-            searchRepository.refreshCurrentQuery()
         } else {
             searchRepository.triggerReindexIfDue()
         }
     }
 
+    private fun schedulePackageRefresh(cleanupUninstalled: Boolean = false) {
+        packageRefreshJob?.cancel()
+        packageRefreshJob = lifecycleScope.launch {
+            delay(150L)
+            val apps = appRepository.refreshApps()
+            if (cleanupUninstalled && apps.isNotEmpty()) {
+                settingsRepository.cleanupUninstalled(apps.mapTo(HashSet()) { it.packageName })
+            }
+            searchRepository.refreshCurrentQuery()
+        }
+    }
+
     private val launcherAppsCallback = object : LauncherApps.Callback() {
-        override fun onPackageRemoved(packageName: String, user: android.os.UserHandle) {
-            lifecycleScope.launch { appRepository.refreshApps() }
+        override fun onPackageRemoved(packageName: String, user: UserHandle) {
+            schedulePackageRefresh(cleanupUninstalled = true)
         }
-        override fun onPackageAdded(packageName: String, user: android.os.UserHandle) {
-            lifecycleScope.launch { appRepository.refreshApps() }
+        override fun onPackageAdded(packageName: String, user: UserHandle) {
+            schedulePackageRefresh()
         }
-        override fun onPackageChanged(packageName: String, user: android.os.UserHandle) {
-            lifecycleScope.launch { appRepository.refreshApps() }
+        override fun onPackageChanged(packageName: String, user: UserHandle) {
+            schedulePackageRefresh()
         }
-        override fun onPackagesAvailable(packageNames: Array<out String>, user: android.os.UserHandle, replacing: Boolean) {
-            lifecycleScope.launch { appRepository.refreshApps() }
+        override fun onPackagesAvailable(packageNames: Array<out String>, user: UserHandle, replacing: Boolean) {
+            schedulePackageRefresh()
         }
-        override fun onPackagesUnavailable(packageNames: Array<out String>, user: android.os.UserHandle, replacing: Boolean) {
-            lifecycleScope.launch { appRepository.refreshApps() }
+        override fun onPackagesUnavailable(packageNames: Array<out String>, user: UserHandle, replacing: Boolean) {
+            schedulePackageRefresh(cleanupUninstalled = !replacing)
         }
-        override fun onPackagesSuspended(packageNames: Array<out String>, user: android.os.UserHandle) {
-            lifecycleScope.launch { appRepository.refreshApps() }
+        override fun onPackagesSuspended(packageNames: Array<out String>, user: UserHandle) {
+            schedulePackageRefresh()
         }
-        override fun onPackagesUnsuspended(packageNames: Array<out String>, user: android.os.UserHandle) {
-            lifecycleScope.launch { appRepository.refreshApps() }
+        override fun onPackagesUnsuspended(packageNames: Array<out String>, user: UserHandle) {
+            schedulePackageRefresh()
         }
     }
 
@@ -488,6 +538,13 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        packageRefreshJob?.cancel()
+        if (::searchRepository.isInitialized) {
+            searchRepository.close()
+        }
+        if (::customWidgetRepository.isInitialized) {
+            customWidgetRepository.close()
+        }
         super.onDestroy()
     }
 
@@ -520,14 +577,23 @@ class MainActivity : ComponentActivity() {
                     component = appWidgetInfo.configure
                     putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
                 }
-                widgetConfigureLauncher.launch(configIntent)
+                try {
+                    widgetConfigureLauncher.launch(configIntent)
+                } catch (_: Exception) {
+                    // Fallback for third-party widgets whose configure activity is unexported or throws SecurityException
+                    widgetManager.addPageWidget(id)
+                    pendingWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID
+                    pendingWidgetInfo = null
+                }
             } else {
                 widgetManager.addPageWidget(id)
                 pendingWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID
                 pendingWidgetInfo = null
             }
-        } catch (e: Exception) {
-            Toast.makeText(this, "Widget setup failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+        } catch (_: Exception) {
+            if (id != AppWidgetManager.INVALID_APPWIDGET_ID) {
+                widgetManager.addPageWidget(id)
+            }
             pendingWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID
             pendingWidgetInfo = null
         }
@@ -575,7 +641,7 @@ class MainActivity : ComponentActivity() {
                 val launcherApps = getSystemService(LauncherApps::class.java)
                 if (launcherApps != null && launcherApps.hasShortcutHostPermission()) {
                     try {
-                        launcherApps.startShortcut(shortcutPackage, shortcutId, null, null, android.os.Process.myUserHandle())
+                        launcherApps.startShortcut(shortcutPackage, shortcutId, null, null, Process.myUserHandle())
                         return
                     } catch (_: Exception) {}
                 }
@@ -630,7 +696,7 @@ class MainActivity : ComponentActivity() {
             } else {
                 Toast.makeText(this, "Cannot launch ${entity.title}", Toast.LENGTH_SHORT).show()
             }
-        } catch (_: android.content.ActivityNotFoundException) {
+        } catch (_: ActivityNotFoundException) {
             Toast.makeText(this, "Application not found or disabled", Toast.LENGTH_SHORT).show()
         } catch (_: SecurityException) {
             Toast.makeText(this, "Permission denied to open ${entity.title}", Toast.LENGTH_SHORT).show()

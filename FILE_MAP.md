@@ -8,6 +8,8 @@
 - [`gradle/libs.versions.toml`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/gradle/libs.versions.toml): Version catalog for Compose, Kotlin, AndroidX, and build plugins.
 - [`CUSTOM_WIDGETS.md`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/CUSTOM_WIDGETS.md): Documentation on custom widgets and JSON schema specifications.
 - [`PLAY_STORE_RELEASE.md`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/PLAY_STORE_RELEASE.md): Checklist and guidelines for Play Store compliance and production release.
+- [`fixes.md`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/fixes.md): Detailed changelog of bug fixes, memory leak resolutions, and performance optimizations.
+- [`filemap.md`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/filemap.md): Project structure and architectural map.
 
 ---
 
@@ -15,6 +17,7 @@
 - [`app/build.gradle.kts`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/app/build.gradle.kts): Application Gradle build scripts, dependencies, composeCompiler configurations, and SDK versions.
 - [`app/proguard-rules.pro`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/app/proguard-rules.pro): R8/ProGuard obfuscation rules.
 - [`app/src/main/AndroidManifest.xml`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/app/src/main/AndroidManifest.xml): App manifest defining launcher intent filters, permissions, tile services, and activities.
+- [`app/src/main/assets/custom-widgets/manifest.json`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/app/src/main/assets/custom-widgets/manifest.json): Published custom widgets manifest JSON asset.
 
 ---
 
@@ -24,7 +27,7 @@
 - [`MainActivity.kt`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/app/src/main/java/com/sushanth/poplauncher/MainActivity.kt): Core entry point, window insets, system gestures, and root Composable navigation setup.
 
 ### Bubble Physics & Floating UI (`bubble/`)
-- [`BubblePhysicsEngine.kt`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/app/src/main/java/com/sushanth/poplauncher/bubble/BubblePhysicsEngine.kt): Single bubble motion, collision boundaries, and restitution.
+- [`BubblePhysicsEngine.kt`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/app/src/main/java/com/sushanth/poplauncher/bubble/BubblePhysicsEngine.kt): Single bubble motion, collision boundaries, and frame delta time.
 - [`MultiBubblePhysicsEngine.kt`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/app/src/main/java/com/sushanth/poplauncher/bubble/MultiBubblePhysicsEngine.kt): Physics simulation handling inter-bubble collision and velocity damping.
 - [`FloatingAppBubble.kt`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/app/src/main/java/com/sushanth/poplauncher/bubble/FloatingAppBubble.kt): Composable bubble rendering, touch handling, and drag gestures.
 - [`MultiAppBubbleContainer.kt`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/app/src/main/java/com/sushanth/poplauncher/bubble/MultiAppBubbleContainer.kt): Surface hosting multiple floating app bubbles with continuous frame loop.

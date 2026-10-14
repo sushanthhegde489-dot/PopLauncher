@@ -5,6 +5,7 @@ import android.graphics.drawable.Drawable
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
+import android.os.VibratorManager
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -30,6 +31,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -37,42 +39,44 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
-import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.sushanth.poplauncher.data.model.AppEntity
 import com.sushanth.poplauncher.data.model.BubbleConfig
 import com.sushanth.poplauncher.data.model.SearchEntity
 import com.sushanth.poplauncher.ui.theme.ChartAmber
 import com.sushanth.poplauncher.ui.theme.DarkOnBackground
+import com.sushanth.poplauncher.ui.theme.LocalIsMonochromeTheme
+import com.sushanth.poplauncher.util.drawableToBitmap
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlin.math.hypot
-import kotlin.math.roundToInt
 
 enum class BubbleStage {
     FLOATING_BUBBLE,
@@ -92,13 +96,32 @@ fun FloatingAppBubbleContainer(
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var isResumed by remember { mutableStateOf(true) }
+
     val vibrator = remember {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? android.os.VibratorManager
+            val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
             vibratorManager?.defaultVibrator
         } else {
             @Suppress("DEPRECATION")
             context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        }
+    }
+
+    DisposableEffect(lifecycleOwner, vibrator) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                isResumed = true
+            } else if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) {
+                isResumed = false
+                vibrator?.cancel()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            vibrator?.cancel()
         }
     }
 
@@ -110,6 +133,10 @@ fun FloatingAppBubbleContainer(
 
     val physicsEngine = remember { BubblePhysicsEngine(bubbleConfig) }
     val gravityEngine = remember { GravityIconPhysicsEngine() }
+
+    LaunchedEffect(bubbleConfig) {
+        physicsEngine.updateConfig(bubbleConfig)
+    }
 
     var currentStage by remember { mutableStateOf(BubbleStage.FLOATING_BUBBLE) }
 
@@ -134,29 +161,59 @@ fun FloatingAppBubbleContainer(
         canDismissByBackgroundTap = true
     }
 
-    // Breathing pulse for floating bubble
+    // Breathing pulse for floating bubble (runs only while bubble stage is active and app is resumed)
     val pulseScale = remember { Animatable(1f) }
-    LaunchedEffect(Unit) {
-        pulseScale.animateTo(
-            targetValue = 1.05f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(1200, easing = FastOutSlowInEasing),
-                repeatMode = RepeatMode.Reverse
+    LaunchedEffect(currentStage, isResumed) {
+        if (currentStage == BubbleStage.FLOATING_BUBBLE && isResumed) {
+            pulseScale.animateTo(
+                targetValue = 1.05f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1200, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse
+                )
             )
-        )
+        } else {
+            pulseScale.snapTo(1f)
+        }
     }
 
-    val isMonochrome = com.sushanth.poplauncher.ui.theme.LocalIsMonochromeTheme.current
+    val isMonochrome = LocalIsMonochromeTheme.current
     val appBitmap = remember(iconDrawable, isMonochrome) {
-        iconDrawable?.let { com.sushanth.poplauncher.util.drawableToBitmap(it, isMonochrome) }
+        iconDrawable?.let { drawableToBitmap(it, isMonochrome) }
+    }
+
+    fun triggerPopTransition() {
+        triggerHeavyHaptic(vibrator)
+        val centerOffset = Offset(
+            bubblePosX + bubbleSizePx / 2f,
+            bubblePosY + bubbleSizePx / 2f
+        )
+        popCoordinates = centerOffset
+
+        if (bubbleConfig.popDifficulty.isMazeChallenge) {
+            currentStage = BubbleStage.MAZE_CHALLENGE
+        } else {
+            currentStage = BubbleStage.POPPING
+            gravityEngine.initialize(
+                startX = centerOffset.x - iconSizePx / 2f,
+                startY = centerOffset.y - iconSizePx / 2f,
+                minX = screenBounds[0],
+                maxX = screenBounds[1],
+                minY = screenBounds[2],
+                maxY = screenBounds[3]
+            )
+            gravityPosX = gravityEngine.posX
+            gravityPosY = gravityEngine.posY
+            gravityRotation = gravityEngine.rotation
+        }
     }
 
     // Stage 1: Floating Bubble Physics Loop
-    LaunchedEffect(currentStage) {
-        if (currentStage != BubbleStage.FLOATING_BUBBLE) return@LaunchedEffect
+    LaunchedEffect(currentStage, isResumed) {
+        if (currentStage != BubbleStage.FLOATING_BUBBLE || !isResumed) return@LaunchedEffect
         var lastFrame = 0L
 
-        while (currentStage == BubbleStage.FLOATING_BUBBLE) {
+        while (isActive && currentStage == BubbleStage.FLOATING_BUBBLE && isResumed) {
             withFrameNanos { now ->
                 if (lastFrame != 0L) {
                     val dt = (now - lastFrame) / 1_000_000_000f
@@ -170,7 +227,7 @@ fun FloatingAppBubbleContainer(
     }
 
     // Charge & Pop Controller
-    LaunchedEffect(isCharging) {
+    LaunchedEffect(isCharging, currentStage) {
         if ((!isCharging) || (currentStage != BubbleStage.FLOATING_BUBBLE)) {
             chargeRatio = 0f
             return@LaunchedEffect
@@ -179,7 +236,7 @@ fun FloatingAppBubbleContainer(
         val startTime = System.currentTimeMillis()
         var lastVibe = 0L
 
-        while (isCharging && (currentStage == BubbleStage.FLOATING_BUBBLE)) {
+        while (isActive && isCharging && (currentStage == BubbleStage.FLOATING_BUBBLE)) {
             val elapsed = System.currentTimeMillis() - startTime
             val ratio = (elapsed.toFloat() / chargeThresholdMs).coerceIn(0f, 1f)
             chargeRatio = ratio
@@ -190,28 +247,7 @@ fun FloatingAppBubbleContainer(
             }
 
             if (ratio >= 1f) {
-                // FIRST POP TRIGGERED!
-                triggerHeavyHaptic(vibrator)
-                val centerOffset = Offset(
-                    bubblePosX + bubbleSizePx / 2f,
-                    bubblePosY + bubbleSizePx / 2f
-                )
-                popCoordinates = centerOffset
-
-                if (bubbleConfig.popDifficulty.isMazeChallenge) {
-                    currentStage = BubbleStage.MAZE_CHALLENGE
-                } else {
-                    currentStage = BubbleStage.POPPING
-                    // Initialize Stage 2: Gravity Icon
-                    gravityEngine.initialize(
-                        startX = centerOffset.x - iconSizePx / 2f,
-                        startY = centerOffset.y - iconSizePx / 2f,
-                        minX = screenBounds[0],
-                        maxX = screenBounds[1],
-                        minY = screenBounds[2],
-                        maxY = screenBounds[3]
-                    )
-                }
+                triggerPopTransition()
                 break
             }
             delay(16L)
@@ -219,11 +255,11 @@ fun FloatingAppBubbleContainer(
     }
 
     // Stage 2: Gravity Falling Icon Physics Loop
-    LaunchedEffect(currentStage) {
-        if (currentStage != BubbleStage.GRAVITY_FALLING_ICON) return@LaunchedEffect
+    LaunchedEffect(currentStage, isResumed) {
+        if (currentStage != BubbleStage.GRAVITY_FALLING_ICON || !isResumed) return@LaunchedEffect
         var lastFrame = 0L
 
-        while (currentStage == BubbleStage.GRAVITY_FALLING_ICON) {
+        while (isActive && currentStage == BubbleStage.GRAVITY_FALLING_ICON && isResumed) {
             if (gravityEngine.isSettled) {
                 lastFrame = 0L
                 delay(50)
@@ -272,12 +308,11 @@ fun FloatingAppBubbleContainer(
         // STAGE 1: Floating App Bubble
         // -------------------------------------------------------------
         if (currentStage == BubbleStage.FLOATING_BUBBLE) {
-            val scale = (pulseScale.value + (chargeRatio * 0.18f))
-
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
                     .graphicsLayer {
+                        val scale = pulseScale.value + (chargeRatio * 0.18f)
                         translationX = bubblePosX
                         translationY = bubblePosY
                         scaleX = scale
@@ -288,8 +323,7 @@ fun FloatingAppBubbleContainer(
                         role = Role.Button
                         contentDescription = "Floating bubble for ${app.title}. Hold to pop."
                         onClick(label = "Pop bubble and launch ${app.title}") {
-                            triggerHeavyHaptic(vibrator)
-                            currentStage = BubbleStage.GRAVITY_FALLING_ICON
+                            triggerPopTransition()
                             true
                         }
                     }
@@ -325,7 +359,10 @@ fun FloatingAppBubbleContainer(
                                     bubblePosX = physicsEngine.posX
                                     bubblePosY = physicsEngine.posY
 
-                                    velocityTracker.addPosition(currentPointer.uptimeMillis, Offset(down.position.x + cumulativeX, down.position.y + cumulativeY))
+                                    velocityTracker.addPosition(
+                                        currentPointer.uptimeMillis,
+                                        Offset(down.position.x + cumulativeX, down.position.y + cumulativeY)
+                                    )
                                 }
                             } while (event.changes.any { it.pressed })
 
@@ -371,25 +408,30 @@ fun FloatingAppBubbleContainer(
                         Image(
                             bitmap = appBitmap.asImageBitmap(),
                             contentDescription = app.title,
-                            colorFilter = if (isMonochrome) androidx.compose.ui.graphics.ColorFilter.colorMatrix(androidx.compose.ui.graphics.ColorMatrix().apply { setToSaturation(0f) }) else null,
                             modifier = Modifier
                                 .size(52.dp)
                                 .clip(CircleShape)
                         )
                     }
 
-                    if (chargeRatio > 0.01f) {
+                    if (isCharging) {
                         val tertiaryColor = MaterialTheme.colorScheme.tertiary
                         val secondaryColor = MaterialTheme.colorScheme.secondary
+                        val arcBrush = remember(tertiaryColor, secondaryColor) {
+                            Brush.sweepGradient(listOf(ChartAmber, tertiaryColor, secondaryColor, ChartAmber))
+                        }
                         Canvas(modifier = Modifier.fillMaxSize()) {
-                            val strokeWidth = 5.dp.toPx()
-                            drawArc(
-                                brush = Brush.sweepGradient(listOf(ChartAmber, tertiaryColor, secondaryColor, ChartAmber)),
-                                startAngle = -90f,
-                                sweepAngle = chargeRatio * 360f,
-                                useCenter = false,
-                                style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-                            )
+                            val ratio = chargeRatio
+                            if (ratio > 0.01f) {
+                                val strokeWidth = 5.dp.toPx()
+                                drawArc(
+                                    brush = arcBrush,
+                                    startAngle = -90f,
+                                    sweepAngle = ratio * 360f,
+                                    useCenter = false,
+                                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                                )
+                            }
                         }
                     }
                 }
@@ -404,7 +446,7 @@ fun FloatingAppBubbleContainer(
                         .padding(horizontal = 12.dp, vertical = 4.dp)
                 ) {
                     Text(
-                        text = if (chargeRatio > 0f) "Hold to Pop..." else app.title,
+                        text = if (isCharging) "Hold to Pop..." else app.title,
                         color = DarkOnBackground,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -427,7 +469,7 @@ fun FloatingAppBubbleContainer(
         }
 
         // -------------------------------------------------------------
-        // STAGE 2: Gravity falling & bouncing icon (Interactive DVD Screensaver)
+        // STAGE 2: Gravity falling & bouncing icon
         // -------------------------------------------------------------
         if (currentStage == BubbleStage.GRAVITY_FALLING_ICON) {
             Box(
@@ -520,7 +562,6 @@ fun FloatingAppBubbleContainer(
                     Image(
                         bitmap = appBitmap.asImageBitmap(),
                         contentDescription = app.title,
-                        colorFilter = if (isMonochrome) androidx.compose.ui.graphics.ColorFilter.colorMatrix(androidx.compose.ui.graphics.ColorMatrix().apply { setToSaturation(0f) }) else null,
                         modifier = Modifier
                             .size(54.dp)
                             .clip(CircleShape)

@@ -10,7 +10,12 @@ import android.graphics.drawable.Drawable
 import android.os.Process
 import android.os.UserHandle
 import android.os.UserManager
+import android.util.LruCache
+import com.sushanth.poplauncher.data.indexing.PackageCheckCache
+import com.sushanth.poplauncher.data.model.AppEntity
 import com.sushanth.poplauncher.data.model.SearchEntity
+import com.sushanth.poplauncher.util.IconUtils
+import com.sushanth.poplauncher.util.PrivateSpaceHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -48,9 +53,10 @@ data class InstalledApp(
     }
 }
 
-class AppRepository(private val context: Context) {
+class AppRepository(context: Context) {
 
-    private val packageManager: PackageManager = context.packageManager
+    private val appContext: Context = context.applicationContext
+    private val packageManager: PackageManager = appContext.packageManager
     private val _installedApps = MutableStateFlow<List<InstalledApp>>(emptyList())
     val installedApps: StateFlow<List<InstalledApp>> = _installedApps.asStateFlow()
 
@@ -59,26 +65,22 @@ class AppRepository(private val context: Context) {
     fun isPackageInstalled(pkg: String?): Boolean {
         if (pkg == null) return true
         if (_installedPackageNames.value.contains(pkg)) return true
-        return try {
-            packageManager.getApplicationInfo(pkg, 0)
-            true
-        } catch (_: Exception) {
-            false
-        }
+        return PackageCheckCache.isInstalled(appContext, pkg)
     }
 
     suspend fun refreshApps(): List<InstalledApp> = withContext(Dispatchers.IO) {
-        val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as? LauncherApps
-        val userManager = context.getSystemService(Context.USER_SERVICE) as? UserManager
+        val launcherApps = appContext.getSystemService(Context.LAUNCHER_APPS_SERVICE) as? LauncherApps
+        val userManager = appContext.getSystemService(Context.USER_SERVICE) as? UserManager
         val myUserHandle = Process.myUserHandle()
         val profiles: List<UserHandle> = userManager?.userProfiles ?: listOf(myUserHandle)
-        val myPackageName = context.packageName
+        val myPackageName = appContext.packageName
+        val densityDpi = appContext.resources.displayMetrics.densityDpi
 
         val apps = mutableListOf<InstalledApp>()
 
         if (launcherApps != null) {
             for (profile in profiles) {
-                val isPrivate = com.sushanth.poplauncher.util.PrivateSpaceHelper.isPrivateProfile(userManager, profile, context)
+                val isPrivate = PrivateSpaceHelper.isPrivateProfile(userManager, profile, appContext)
                 val isQuiet = try { userManager?.isQuietModeEnabled(profile) ?: false } catch (_: Throwable) { false }
 
                 // If private profile is currently locked in quiet mode, never expose its apps
@@ -106,9 +108,9 @@ class AppRepository(private val context: Context) {
                         }
                         val compName = act.componentName
                         val icon = try {
-                            act.getBadgedIcon(context.resources.displayMetrics.densityDpi)
+                            act.getBadgedIcon(densityDpi)
                         } catch (_: Exception) {
-                            act.getIcon(context.resources.displayMetrics.densityDpi)
+                            act.getIcon(densityDpi)
                         }
 
                         val intent = Intent(Intent.ACTION_MAIN).apply {
@@ -190,74 +192,16 @@ class AppRepository(private val context: Context) {
 
         val distinctApps = apps
             .distinctBy { "${it.packageName}#${it.userHandle}#${it.activityName}" }
-            .sortedBy { it.label.lowercase() }
+            .sortedBy { it.normalizedLabel }
+
+        synchronized(monochromeIconCache) {
+            monochromeIconCache.evictAll()
+        }
+        PackageCheckCache.invalidate()
 
         _installedPackageNames.value = distinctApps.mapTo(HashSet()) { it.packageName }
         _installedApps.value = distinctApps
         distinctApps
-    }
-
-    fun getPrivateSpaceApps(): List<InstalledApp> {
-        val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as? LauncherApps ?: return emptyList()
-        val userManager = context.getSystemService(Context.USER_SERVICE) as? UserManager ?: return emptyList()
-        val privateProfile = com.sushanth.poplauncher.util.PrivateSpaceHelper.getPrivateProfile(context) ?: return emptyList()
-
-        val isQuiet = try {
-            userManager.isQuietModeEnabled(privateProfile)
-        } catch (_: Throwable) {
-            false
-        }
-        if (isQuiet) return emptyList()
-
-        val activities = try {
-            launcherApps.getActivityList(null, privateProfile)
-        } catch (_: Exception) {
-            emptyList()
-        }
-
-        val apps = mutableListOf<InstalledApp>()
-        for (act in activities) {
-            try {
-                val pkg = act.applicationInfo.packageName
-                if (pkg == context.packageName) continue
-
-                val displayLabel = act.label.toString()
-                val compName = act.componentName
-                val icon = try {
-                    act.getBadgedIcon(context.resources.displayMetrics.densityDpi)
-                } catch (_: Exception) {
-                    act.getIcon(context.resources.displayMetrics.densityDpi)
-                }
-
-                val intent = Intent(Intent.ACTION_MAIN).apply {
-                    addCategory(Intent.CATEGORY_LAUNCHER)
-                    component = compName
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-                }
-
-                val norm = displayLabel.trim().lowercase()
-                val w = norm.split(NON_ALPHANUMERIC_REGEX).filter { it.isNotBlank() }
-                val ini = w.mapNotNull { it.firstOrNull() }.joinToString("")
-
-                apps.add(
-                    InstalledApp(
-                        packageName = pkg,
-                        activityName = compName.className,
-                        componentName = compName,
-                        label = displayLabel,
-                        normalizedLabel = norm,
-                        words = w,
-                        initials = ini,
-                        icon = icon,
-                        launchIntent = intent,
-                        isClone = false,
-                        isPrivate = true,
-                        userHandle = privateProfile
-                    )
-                )
-            } catch (_: Exception) {}
-        }
-        return apps.distinctBy { "${it.packageName}#${it.componentName}" }.sortedBy { it.label.lowercase() }
     }
 
     /**
@@ -270,26 +214,25 @@ class AppRepository(private val context: Context) {
         query: String,
         frictionPackages: Set<String>,
         caseSensitive: Boolean = false
-    ): com.sushanth.poplauncher.data.model.AppEntity? {
+    ): AppEntity? {
         val trimmedQuery = query.trim()
-        if (trimmedQuery.isEmpty()) return null
+        if (trimmedQuery.isEmpty() || frictionPackages.isEmpty()) return null
 
         val currentApps = _installedApps.value
+        val lowerQuery = trimmedQuery.lowercase()
         val match = currentApps.firstOrNull { app ->
-            val isFriction = app.isContainedIn(frictionPackages)
-            if (!isFriction) return@firstOrNull false
+            if (!app.isContainedIn(frictionPackages)) return@firstOrNull false
 
-            val baseLabel = if (app.isClone) {
-                app.label.removeSuffix(" (Clone)").trim()
-            } else {
-                app.label.trim()
+            val baseLabel = when {
+                app.isClone -> app.label.removeSuffix(" (Clone)").trim()
+                app.isPrivate -> app.label.removeSuffix(" (Private)").trim()
+                else -> app.label.trim()
             }
 
             if (caseSensitive) {
                 baseLabel == trimmedQuery || app.label.trim() == trimmedQuery
             } else {
-                val q = trimmedQuery.lowercase()
-                baseLabel.lowercase() == q || app.normalizedLabel == q
+                baseLabel.lowercase() == lowerQuery || app.normalizedLabel == lowerQuery
             }
         } ?: return null
 
@@ -298,9 +241,6 @@ class AppRepository(private val context: Context) {
 
     /**
      * Searches standard apps (apps that are NOT in the friction list) using substring/fuzzy matching.
-     * Specification:
-     * "And this kind of search should be for apps the user selects from a separate UI and every other
-     * apps that don't have it set should use something like fuzzy search"
      */
     fun searchStandardApps(
         query: String,
@@ -311,11 +251,12 @@ class AppRepository(private val context: Context) {
         val trimmedQuery = query.trim()
         if (trimmedQuery.isEmpty()) return emptyList()
 
-        val normalizedQuery = if (caseSensitive) trimmedQuery else trimmedQuery.lowercase()
+        val lowerQuery = trimmedQuery.lowercase()
+        val normalizedQuery = if (caseSensitive) trimmedQuery else lowerQuery
         val currentApps = _installedApps.value
 
-        val knownAcronymTargets = KNOWN_ACRONYMS[normalizedQuery] ?: emptySet()
-        val categoryTokens = CATEGORY_KEYWORDS[normalizedQuery] ?: emptySet()
+        val knownAcronymTargets = KNOWN_ACRONYMS[lowerQuery] ?: emptySet()
+        val categoryTokens = CATEGORY_KEYWORDS[lowerQuery] ?: emptySet()
 
         val scoredApps = mutableListOf<Pair<InstalledApp, Int>>()
 
@@ -324,8 +265,17 @@ class AppRepository(private val context: Context) {
             if (app.isContainedIn(frictionPackages) || app.isContainedIn(hiddenPackages)) continue
 
             val target = if (caseSensitive) app.label else app.normalizedLabel
-            val words = app.words.ifEmpty { target.split(NON_ALPHANUMERIC_REGEX).filter { it.isNotBlank() } }
-            val initials = app.initials.ifEmpty { words.mapNotNull { it.firstOrNull() }.joinToString("") }
+            val lowerTarget = app.normalizedLabel
+            val words = if (caseSensitive) {
+                target.split(NON_ALPHANUMERIC_REGEX).filter { it.isNotBlank() }
+            } else {
+                app.words.ifEmpty { lowerTarget.split(NON_ALPHANUMERIC_REGEX).filter { it.isNotBlank() } }
+            }
+            val initials = if (caseSensitive) {
+                words.mapNotNull { it.firstOrNull() }.joinToString("")
+            } else {
+                app.initials.ifEmpty { words.mapNotNull { it.firstOrNull() }.joinToString("") }
+            }
 
             var score = 0
 
@@ -346,11 +296,11 @@ class AppRepository(private val context: Context) {
                 score = 6000 - target.length
             }
             // 5. Known acronym match (e.g. "yt" -> YouTube, "wa" -> WhatsApp, "ig" -> Instagram)
-            else if (knownAcronymTargets.isNotEmpty() && knownAcronymTargets.any { target.contains(it) || app.packageName.contains(it) }) {
+            else if (knownAcronymTargets.isNotEmpty() && knownAcronymTargets.any { lowerTarget.contains(it) || app.packageName.contains(it) }) {
                 score = 5500 - target.length
             }
             // 6. Semantic category keyword match (e.g. "browser" -> Chrome/Firefox, "music" -> Spotify)
-            else if (categoryTokens.isNotEmpty() && categoryTokens.any { token -> target.contains(token) || app.packageName.contains(token) }) {
+            else if (categoryTokens.isNotEmpty() && categoryTokens.any { token -> lowerTarget.contains(token) || app.packageName.contains(token) }) {
                 score = 5000 - target.length
             }
             // 7. Substring contains
@@ -375,13 +325,13 @@ class AppRepository(private val context: Context) {
         return scoredApps
             .sortedWith(
                 compareByDescending<Pair<InstalledApp, Int>> { it.second }
-                    .thenBy { it.first.label.lowercase() }
+                    .thenBy { it.first.normalizedLabel }
             )
             .take(10)
             .map { it.first.toSearchEntity(isFriction = false) }
     }
 
-    private val monochromeIconCache = android.util.LruCache<String, Drawable>(128)
+    private val monochromeIconCache = LruCache<String, Drawable>(128)
 
     fun getAppIcon(packageName: String, isMonochrome: Boolean = false, userHandle: UserHandle? = null): Drawable? {
         val cacheKey = "$packageName:${userHandle?.hashCode() ?: 0}"
@@ -390,17 +340,18 @@ class AppRepository(private val context: Context) {
             if (cached != null) return cached
         }
 
-        val baseIcon = _installedApps.value.firstOrNull {
+        val currentApps = _installedApps.value
+        val baseIcon = currentApps.firstOrNull {
             it.packageName == packageName && (userHandle == null || it.userHandle == userHandle)
         }?.icon
-            ?: _installedApps.value.firstOrNull { it.packageName == packageName }?.icon
+            ?: currentApps.firstOrNull { it.packageName == packageName }?.icon
             ?: try {
                 packageManager.getApplicationIcon(packageName)
             } catch (_: Exception) {
                 null
             }
         return if (isMonochrome && baseIcon != null) {
-            val mono = com.sushanth.poplauncher.util.IconUtils.toMonochromeDrawable(baseIcon)
+            val mono = IconUtils.toMonochromeDrawable(baseIcon)
             synchronized(monochromeIconCache) { monochromeIconCache.put(cacheKey, mono) }
             mono
         } else {
@@ -408,9 +359,9 @@ class AppRepository(private val context: Context) {
         }
     }
 
-    fun InstalledApp.toSearchEntity(isFriction: Boolean): com.sushanth.poplauncher.data.model.AppEntity {
-        return com.sushanth.poplauncher.data.model.AppEntity(
-            id = "app:$packageName#${userHandle.hashCode()}#$activityName",
+    fun InstalledApp.toSearchEntity(isFriction: Boolean): AppEntity {
+        return AppEntity(
+            id = "app:$packageName#${userHandle?.hashCode() ?: 0}#$activityName",
             title = label,
             subtitle = when {
                 isFriction -> "Deliberate launch (Bubble)"

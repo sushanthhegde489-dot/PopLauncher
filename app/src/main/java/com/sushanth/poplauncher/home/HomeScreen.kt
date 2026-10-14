@@ -2,17 +2,24 @@ package com.sushanth.poplauncher.home
 
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
-import android.os.UserManager
-import android.widget.Toast
-import androidx.core.net.toUri
+import android.content.pm.LauncherApps
 import android.provider.Settings
+import android.util.Log
+import android.view.ViewConfiguration
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -26,6 +33,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
@@ -35,58 +43,63 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalViewConfiguration
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalViewConfiguration
+import androidx.core.net.toUri
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.sushanth.poplauncher.MainActivity
+import com.sushanth.poplauncher.bubble.FloatingAppBubbleContainer
+import com.sushanth.poplauncher.bubble.MultiAppBubbleContainer
+import com.sushanth.poplauncher.data.model.AppEntity
+import com.sushanth.poplauncher.data.model.AppGroup
+import com.sushanth.poplauncher.data.model.AppGroupEntity
 import com.sushanth.poplauncher.data.model.GestureActionType
 import com.sushanth.poplauncher.data.model.GestureConfig
-import com.sushanth.poplauncher.LauncherScreen
-import com.sushanth.poplauncher.bubble.FloatingAppBubbleContainer
 import com.sushanth.poplauncher.data.model.SearchEntity
+import com.sushanth.poplauncher.data.model.SearchType
 import com.sushanth.poplauncher.data.repository.AppRepository
 import com.sushanth.poplauncher.data.repository.SearchRepository
 import com.sushanth.poplauncher.data.repository.SettingsRepository
 import com.sushanth.poplauncher.search.SearchOverlay
 import com.sushanth.poplauncher.settings.isDefaultLauncher
+import com.sushanth.poplauncher.settings.requestSetDefaultLauncher
+import com.sushanth.poplauncher.util.PrivateSpaceHelper
 import com.sushanth.poplauncher.widgets.DedicatedWidgetPage
 import com.sushanth.poplauncher.widgets.LauncherAppWidgetHost
 import com.sushanth.poplauncher.widgets.WidgetManager
 import com.sushanth.poplauncher.widgets.custom.ActionType
+import com.sushanth.poplauncher.widgets.custom.CustomWidgetRepository
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlin.math.abs
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -95,7 +108,7 @@ fun HomeScreen(
     searchRepository: SearchRepository,
     settingsRepository: SettingsRepository,
     widgetManager: WidgetManager,
-    customWidgetRepository: com.sushanth.poplauncher.widgets.custom.CustomWidgetRepository,
+    customWidgetRepository: CustomWidgetRepository,
     appWidgetHost: LauncherAppWidgetHost,
     onOpenSettings: () -> Unit,
     onOpenHiddenAppsSetup: () -> Unit,
@@ -113,44 +126,50 @@ fun HomeScreen(
     var isSearchOpen by remember { mutableStateOf(false) }
     var isContextMenuOpen by remember { mutableStateOf(false) }
     var isHiddenAppsBubblesOpen by remember { mutableStateOf(false) }
-    var isPrivateSpaceBubblesOpen by remember { mutableStateOf(false) }
-    var activeGroupBubbles by remember { mutableStateOf<com.sushanth.poplauncher.data.model.AppGroup?>(null) }
+    var activeGroupBubbles by remember { mutableStateOf<AppGroup?>(null) }
 
     val pagerState = rememberPagerState { 2 }
     val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
-    val mainActivity = context as? com.sushanth.poplauncher.MainActivity
-    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    val mainActivity = context as? MainActivity
+    val lifecycleOwner = LocalLifecycleOwner.current
     var isAppResumed by remember { mutableStateOf(true) }
     var isDefault by remember { mutableStateOf(isDefaultLauncher(context)) }
     var fileAccessMissing by remember {
-        mutableStateOf(mainActivity?.hasPermissionForProvider(com.sushanth.poplauncher.data.model.SearchType.FILE) == false)
+        mutableStateOf(mainActivity?.hasPermissionForProvider(SearchType.FILE) == false)
     }
 
+    val scope = rememberCoroutineScope()
+    val viewConfiguration = LocalViewConfiguration.current
+    var lastTapTime by remember { mutableLongStateOf(0L) }
+    var lastTapPos by remember { mutableStateOf(Offset.Zero) }
+    var tapCount by remember { mutableIntStateOf(0) }
+    var pendingTapJob by remember { mutableStateOf<Job?>(null) }
+    var lastActionExecutionTime by remember { mutableLongStateOf(0L) }
+
     DisposableEffect(lifecycleOwner) {
-        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
                 isAppResumed = true
                 isDefault = isDefaultLauncher(context)
-                fileAccessMissing = mainActivity?.hasPermissionForProvider(com.sushanth.poplauncher.data.model.SearchType.FILE) == false
-            } else if (event == androidx.lifecycle.Lifecycle.Event.ON_PAUSE || event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
+                fileAccessMissing = mainActivity?.hasPermissionForProvider(SearchType.FILE) == false
+            } else if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) {
                 isAppResumed = false
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
+            pendingTapJob?.cancel()
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
 
-    BackHandler(enabled = isSearchOpen || isContextMenuOpen || searchState.activeBubbleApp != null || isHiddenAppsBubblesOpen || activeGroupBubbles != null || isPrivateSpaceBubblesOpen) {
+    BackHandler(enabled = isSearchOpen || isContextMenuOpen || searchState.activeBubbleApp != null || isHiddenAppsBubblesOpen || activeGroupBubbles != null) {
         if (searchState.activeBubbleApp != null) {
             searchQuery = ""
             searchRepository.clearSearch()
         } else if (activeGroupBubbles != null) {
             activeGroupBubbles = null
-        } else if (isPrivateSpaceBubblesOpen) {
-            isPrivateSpaceBubblesOpen = false
         } else if (isHiddenAppsBubblesOpen) {
             isHiddenAppsBubblesOpen = false
         } else if (isContextMenuOpen) {
@@ -177,8 +196,10 @@ fun HomeScreen(
         mutableStateOf(LocalDateTime.now(ZoneId.systemDefault()).format(dateFormatter))
     }
 
-    LaunchedEffect(isAppResumed, timeFormatter, dateFormatter) {
-        if (!isAppResumed) return@LaunchedEffect
+    // Only tick clock when app is resumed and clock or date is visible on page 0
+    val shouldTickClock = isAppResumed && (settings.showClock || settings.showDate)
+    LaunchedEffect(shouldTickClock, timeFormatter, dateFormatter) {
+        if (!shouldTickClock) return@LaunchedEffect
         while (true) {
             val now = LocalDateTime.now(ZoneId.systemDefault())
             currentTime = now.format(timeFormatter)
@@ -188,18 +209,6 @@ fun HomeScreen(
             delay(millisUntilNextMinute)
         }
     }
-
-    LaunchedEffect(settings.clock24Hour) {
-        currentTime = LocalDateTime.now(ZoneId.systemDefault()).format(timeFormatter)
-    }
-
-    val scope = rememberCoroutineScope()
-    val viewConfiguration = LocalViewConfiguration.current
-    var lastTapTime by remember { mutableLongStateOf(0L) }
-    var lastTapPos by remember { mutableStateOf(Offset.Zero) }
-    var tapCount by remember { mutableIntStateOf(0) }
-    var pendingTapJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-    var lastActionExecutionTime by remember { mutableLongStateOf(0L) }
 
     fun executeGestureAction(config: GestureConfig) {
         val now = System.currentTimeMillis()
@@ -213,7 +222,7 @@ fun HomeScreen(
                 if (!target.isNullOrBlank()) {
                     val matchingApp = apps.firstOrNull { it.matchesIdentifier(target) }
                     if (matchingApp != null && matchingApp.componentName != null && matchingApp.userHandle != null) {
-                        val launcherApps = context.getSystemService(android.content.pm.LauncherApps::class.java)
+                        val launcherApps = context.getSystemService(LauncherApps::class.java)
                         try {
                             launcherApps?.startMainActivity(matchingApp.componentName, matchingApp.userHandle, null, null)
                         } catch (_: Exception) {
@@ -252,7 +261,7 @@ fun HomeScreen(
                 expandNotificationShade(context)
             }
             GestureActionType.OPEN_PRIVATE_SPACE -> {
-                val opened = com.sushanth.poplauncher.util.PrivateSpaceHelper.openPrivateSpace(context)
+                val opened = PrivateSpaceHelper.openPrivateSpace(context)
                 if (!opened) {
                     Toast.makeText(context, "Private Space is not supported or set up on this device", Toast.LENGTH_SHORT).show()
                 }
@@ -272,29 +281,6 @@ fun HomeScreen(
         }
     }
 
-    // Keep the original organic floating motion for the main search control.
-    val infiniteTransition = rememberInfiniteTransition(label = "SearchIconMotion")
-    val searchFloatX by infiniteTransition.animateFloat(
-        initialValue = -45f, targetValue = 45f,
-        animationSpec = infiniteRepeatable(tween(4400, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "SearchFloatX"
-    )
-    val searchFloatY by infiniteTransition.animateFloat(
-        initialValue = -26f, targetValue = 26f,
-        animationSpec = infiniteRepeatable(tween(3300, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "SearchFloatY"
-    )
-    val searchRotate by infiniteTransition.animateFloat(
-        initialValue = -5f, targetValue = 5f,
-        animationSpec = infiniteRepeatable(tween(5100, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "SearchRotate"
-    )
-    val searchScale by infiniteTransition.animateFloat(
-        initialValue = 0.96f, targetValue = 1.04f,
-        animationSpec = infiniteRepeatable(tween(3900, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "SearchScale"
-    )
-
     // Fast debounced search trigger (80ms for typing responsiveness, 0ms on clear)
     LaunchedEffect(searchQuery) {
         if (searchQuery.isNotEmpty()) {
@@ -310,13 +296,13 @@ fun HomeScreen(
         }
     }
 
-    val bubbleConfig = remember(settings) {
+    val bubbleConfig = remember(settings.bubbleSpeed, settings.bubbleBehavior, settings.popDifficulty) {
         settingsRepository.getBubbleConfig()
     }
 
     val showDefaultLauncherBanner = settings.hasCompletedOnboarding && !isDefault
     val showFileAccessBanner = settings.hasCompletedOnboarding &&
-        settings.enabledProviders.contains(com.sushanth.poplauncher.data.model.SearchType.FILE) && fileAccessMissing
+        settings.enabledProviders.contains(SearchType.FILE) && fileAccessMissing
 
     // Wallpaper / Transparent / Solid Background Main Scaffold
     Box(
@@ -348,7 +334,7 @@ fun HomeScreen(
                                 val minSwipeDistance = 85.dp.toPx()
                                 val maxTapRadius = 36.dp.toPx()
                                 awaitEachGesture {
-                                    val down = awaitFirstDown(requireUnconsumed = false)
+                                    val down = awaitFirstDown(requireUnconsumed = true)
                                     val downTime = System.currentTimeMillis()
                                     val startPos = down.position
                                     var isDragDetected = false
@@ -383,7 +369,7 @@ fun HomeScreen(
                                             if (!isDragDetected && !current.isConsumed) {
                                                 lastTapTime = System.currentTimeMillis()
                                                 val currentTaps = tapCount
-                                                val doubleTapTimeout = android.view.ViewConfiguration.getDoubleTapTimeout().toLong().coerceIn(180L, 240L)
+                                                val doubleTapTimeout = ViewConfiguration.getDoubleTapTimeout().toLong().coerceIn(180L, 240L)
                                                 val hasDoubleTap = settings.gestureDoubleTap.actionType != GestureActionType.NONE
                                                 val hasTripleTap = settings.gestureTripleTap.actionType != GestureActionType.NONE
 
@@ -427,8 +413,8 @@ fun HomeScreen(
 
                                         val dx = current.position.x - startPos.x
                                         val dy = current.position.y - startPos.y
-                                        val absDx = kotlin.math.abs(dx)
-                                        val absDy = kotlin.math.abs(dy)
+                                        val absDx = abs(dx)
+                                        val absDy = abs(dy)
 
                                         if (!isDragDetected && (absDy > touchSlop || absDx > touchSlop)) {
                                             isDragDetected = true
@@ -467,7 +453,7 @@ fun HomeScreen(
                                         .clip(RoundedCornerShape(16.dp))
                                         .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f))
                                         .clickable {
-                                            com.sushanth.poplauncher.settings.requestSetDefaultLauncher(context)
+                                            requestSetDefaultLauncher(context)
                                         }
                                         .padding(16.dp)
                                  ) {
@@ -542,43 +528,23 @@ fun HomeScreen(
                             Spacer(modifier = Modifier.weight(1f))
 
                             // 2. CONTINUOUS FLOATING MOVING CIRCULAR SEARCH BUTTON
-                            val searchAnimation = settings.searchAnimationEnabled
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .then(
-                                        if (searchAnimation && isAppResumed && !isSearchOpen) {
-                                            Modifier.graphicsLayer {
-                                                translationX = searchFloatX
-                                                translationY = searchFloatY
-                                                rotationZ = searchRotate
-                                                scaleX = searchScale
-                                                scaleY = searchScale
-                                            }
-                                        } else Modifier
-                                    )
-                                    .size(68.dp)
-                                    .shadow(16.dp, CircleShape, spotColor = MaterialTheme.colorScheme.primary)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                                    .border(1.5.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.55f), CircleShape)
-                                    .clickable(
-                                        onClickLabel = "Open search",
-                                        role = androidx.compose.ui.semantics.Role.Button
-                                    ) {
-                                        pendingTapJob?.cancel()
-                                        tapCount = 0
-                                        lastTapTime = 0L
-                                        isSearchOpen = true
-                                    }
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.Search,
-                                    contentDescription = "Search apps and files",
-                                    tint = MaterialTheme.colorScheme.secondary,
-                                    modifier = Modifier.size(30.dp)
-                                )
-                            }
+                            val shouldAnimateSearchButton = settings.searchAnimationEnabled &&
+                                isAppResumed &&
+                                !isSearchOpen &&
+                                pagerState.currentPage == 0 &&
+                                searchState.activeBubbleApp == null &&
+                                !isHiddenAppsBubblesOpen &&
+                                activeGroupBubbles == null
+
+                            FloatingSearchButton(
+                                animate = shouldAnimateSearchButton,
+                                onClick = {
+                                    pendingTapJob?.cancel()
+                                    tapCount = 0
+                                    lastTapTime = 0L
+                                    isSearchOpen = true
+                                }
+                            )
 
                             Spacer(modifier = Modifier.height(44.dp))
                         }
@@ -677,7 +643,7 @@ fun HomeScreen(
                     val first = searchState.standardResults.firstOrNull() ?: searchState.webOverview
                     if (first != null) {
                         val queryUsed = searchQuery
-                        if (first is com.sushanth.poplauncher.data.model.AppEntity && first.isFrictionApp) {
+                        if (first is AppEntity && first.isFrictionApp) {
                             searchRepository.triggerFrictionBubble(first)
                             isSearchOpen = false
                         } else {
@@ -705,7 +671,7 @@ fun HomeScreen(
                     } else {
                         isHiddenAppsBubblesOpen = true
                     }
-                } else if (entity is com.sushanth.poplauncher.data.model.AppGroupEntity) {
+                } else if (entity is AppGroupEntity) {
                     isSearchOpen = false
                     searchQuery = ""
                     searchRepository.clearSearch()
@@ -713,7 +679,7 @@ fun HomeScreen(
                     if (group != null) {
                         activeGroupBubbles = group
                     }
-                } else if (entity is com.sushanth.poplauncher.data.model.AppEntity && entity.isFrictionApp) {
+                } else if (entity is AppEntity && entity.isFrictionApp) {
                     searchRepository.triggerFrictionBubble(entity)
                     isSearchOpen = false
                 } else {
@@ -723,7 +689,7 @@ fun HomeScreen(
                     searchRepository.clearSearch()
                 }
             },
-            getAppIcon = { pkg -> appRepository.getAppIcon(pkg, settings.themePalette.isMonochrome) }
+            getAppIcon = { pkg, userHandle -> appRepository.getAppIcon(pkg, settings.themePalette.isMonochrome, userHandle) }
         )
 
         // =============================================================
@@ -741,7 +707,7 @@ fun HomeScreen(
         // =============================================================
         if (searchState.activeBubbleApp != null) {
             val bubbleApp = searchState.activeBubbleApp!!
-            val icon = appRepository.getAppIcon(bubbleApp.packageName, settings.themePalette.isMonochrome)
+            val icon = appRepository.getAppIcon(bubbleApp.packageName, settings.themePalette.isMonochrome, bubbleApp.userHandle)
 
             FloatingAppBubbleContainer(
                 app = bubbleApp,
@@ -773,10 +739,10 @@ fun HomeScreen(
             }
 
             if (hiddenAppsList.isNotEmpty()) {
-                com.sushanth.poplauncher.bubble.MultiAppBubbleContainer(
+                MultiAppBubbleContainer(
                     apps = hiddenAppsList,
                     bubbleConfig = bubbleConfig,
-                    getAppIcon = { pkg -> appRepository.getAppIcon(pkg, settings.themePalette.isMonochrome) },
+                    getAppIcon = { pkg, userHandle -> appRepository.getAppIcon(pkg, settings.themePalette.isMonochrome, userHandle) },
                     modifier = Modifier.fillMaxSize(),
                     onDismiss = { isHiddenAppsBubblesOpen = false },
                     onAppLaunch = { launchedApp ->
@@ -804,10 +770,10 @@ fun HomeScreen(
             }
 
             if (groupAppsList.isNotEmpty()) {
-                com.sushanth.poplauncher.bubble.MultiAppBubbleContainer(
+                MultiAppBubbleContainer(
                     apps = groupAppsList,
                     bubbleConfig = bubbleConfig,
-                    getAppIcon = { pkg -> appRepository.getAppIcon(pkg, settings.themePalette.isMonochrome) },
+                    getAppIcon = { pkg, userHandle -> appRepository.getAppIcon(pkg, settings.themePalette.isMonochrome, userHandle) },
                     modifier = Modifier.fillMaxSize(),
                     onDismiss = { activeGroupBubbles = null },
                     onAppLaunch = { launchedApp ->
@@ -820,46 +786,6 @@ fun HomeScreen(
                     activeGroupBubbles = null
                 }
             }
-        }
-
-        // =============================================================
-        // MULTI-BUBBLE PRIVATE SPACE OVERLAY
-        // =============================================================
-        if (isPrivateSpaceBubblesOpen) {
-            val privateAppsList = remember {
-                val installed = with(appRepository) {
-                    getPrivateSpaceApps().map { it.toSearchEntity(isFriction = false) }
-                }
-                val addAppsItem = com.sushanth.poplauncher.data.model.AppEntity(
-                    id = "private_space:add_apps",
-                    title = "+ Add Apps",
-                    subtitle = "Install into Private Space",
-                    source = "Private Space",
-                    packageName = "com.android.vending",
-                    launchIntent = null,
-                    isPrivate = true
-                )
-                listOf(addAppsItem) + installed
-            }
-
-            com.sushanth.poplauncher.bubble.MultiAppBubbleContainer(
-                apps = privateAppsList,
-                bubbleConfig = bubbleConfig,
-                getAppIcon = { pkg -> appRepository.getAppIcon(pkg, settings.themePalette.isMonochrome) },
-                modifier = Modifier.fillMaxSize(),
-                onDismiss = { isPrivateSpaceBubblesOpen = false },
-                onAppLaunch = { launchedApp ->
-                    isPrivateSpaceBubblesOpen = false
-                    if (launchedApp.id == "private_space:add_apps") {
-                        val opened = com.sushanth.poplauncher.util.PrivateSpaceHelper.openAddAppsToPrivateSpace(context)
-                        if (!opened) {
-                            Toast.makeText(context, "Cannot open Private Space app store or settings", Toast.LENGTH_SHORT).show()
-                        }
-                    } else {
-                        onLaunchEntity(launchedApp, "")
-                    }
-                }
-            )
         }
 
         // =============================================================
@@ -876,6 +802,67 @@ fun HomeScreen(
     }
 }
 
+@Composable
+private fun FloatingSearchButton(
+    animate: Boolean,
+    onClick: () -> Unit
+) {
+    val motionModifier = if (animate) {
+        val infiniteTransition = rememberInfiniteTransition(label = "SearchIconMotion")
+        val searchFloatX by infiniteTransition.animateFloat(
+            initialValue = -45f, targetValue = 45f,
+            animationSpec = infiniteRepeatable(tween(4400, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+            label = "SearchFloatX"
+        )
+        val searchFloatY by infiniteTransition.animateFloat(
+            initialValue = -26f, targetValue = 26f,
+            animationSpec = infiniteRepeatable(tween(3300, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+            label = "SearchFloatY"
+        )
+        val searchRotate by infiniteTransition.animateFloat(
+            initialValue = -5f, targetValue = 5f,
+            animationSpec = infiniteRepeatable(tween(5100, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+            label = "SearchRotate"
+        )
+        val searchScale by infiniteTransition.animateFloat(
+            initialValue = 0.96f, targetValue = 1.04f,
+            animationSpec = infiniteRepeatable(tween(3900, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+            label = "SearchScale"
+        )
+        Modifier.graphicsLayer {
+            translationX = searchFloatX
+            translationY = searchFloatY
+            rotationZ = searchRotate
+            scaleX = searchScale
+            scaleY = searchScale
+        }
+    } else {
+        Modifier
+    }
+
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = motionModifier
+            .size(68.dp)
+            .shadow(16.dp, CircleShape, spotColor = MaterialTheme.colorScheme.primary)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .border(1.5.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.55f), CircleShape)
+            .clickable(
+                onClickLabel = "Open search",
+                role = Role.Button,
+                onClick = onClick
+            )
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.Search,
+            contentDescription = "Search apps and files",
+            tint = MaterialTheme.colorScheme.secondary,
+            modifier = Modifier.size(30.dp)
+        )
+    }
+}
+
 private fun expandNotificationShade(context: Context) {
     try {
         val statusBarService = context.getSystemService("statusbar") ?: return
@@ -883,6 +870,6 @@ private fun expandNotificationShade(context: Context) {
         val expandMethod = statusBarManager.getMethod("expandNotificationsPanel")
         expandMethod.invoke(statusBarService)
     } catch (e: Exception) {
-        android.util.Log.w("HomeScreen", "Failed to expand notification panel via StatusBarManager", e)
+        Log.w("HomeScreen", "Failed to expand notification panel via StatusBarManager", e)
     }
 }

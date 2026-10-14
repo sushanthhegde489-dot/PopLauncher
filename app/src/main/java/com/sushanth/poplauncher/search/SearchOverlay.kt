@@ -1,8 +1,7 @@
 package com.sushanth.poplauncher.search
 
-import kotlin.time.Duration.Companion.milliseconds
-import androidx.compose.material3.MaterialTheme
 import android.graphics.drawable.Drawable
+import android.os.UserHandle
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -20,6 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -31,7 +31,7 @@ import androidx.compose.ui.unit.dp
 import com.sushanth.poplauncher.data.model.SearchEntity
 import com.sushanth.poplauncher.data.repository.SearchResultState
 import kotlinx.coroutines.delay
-import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
 fun SearchOverlay(
@@ -41,7 +41,7 @@ fun SearchOverlay(
     searchState: SearchResultState,
     onDismiss: () -> Unit,
     onLaunchEntity: (SearchEntity) -> Unit,
-    getAppIcon: (String) -> Drawable?,
+    getAppIcon: (String, UserHandle?) -> Drawable?,
     modifier: Modifier = Modifier,
     onSubmitSearch: ((String) -> Unit)? = null
 ) {
@@ -112,7 +112,6 @@ fun SearchOverlay(
                             val first = searchState.standardResults.firstOrNull() ?: searchState.webOverview
                             if (first != null) {
                                 onLaunchEntity(first)
-                                onDismiss()
                             }
                         }
                     },
@@ -130,8 +129,8 @@ fun SearchOverlay(
                     hasActiveBubble = searchState.activeBubbleApp != null,
                     query = searchQuery,
                     onEntityClick = { entity ->
+                        // Note: onLaunchEntity handles dismissal or transitioning to activeBubbleApp without wiping bubble state
                         onLaunchEntity(entity)
-                        onDismiss()
                     },
                     getAppIcon = getAppIcon,
                     modifier = Modifier.weight(1f)

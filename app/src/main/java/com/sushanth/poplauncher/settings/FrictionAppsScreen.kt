@@ -1,7 +1,5 @@
 package com.sushanth.poplauncher.settings
 
-import android.graphics.Bitmap
-import android.graphics.drawable.Drawable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -29,6 +27,7 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -56,6 +55,8 @@ import androidx.compose.ui.unit.sp
 import com.sushanth.poplauncher.data.repository.AppRepository
 import com.sushanth.poplauncher.data.repository.InstalledApp
 import com.sushanth.poplauncher.data.repository.SettingsRepository
+import com.sushanth.poplauncher.ui.theme.LocalIsMonochromeTheme
+import com.sushanth.poplauncher.util.drawableToBitmap
 
 @Composable
 fun FrictionAppsScreen(
@@ -134,7 +135,6 @@ fun FrictionAppsScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Search field for filtering apps
                 TextField(
                     value = filterQuery,
                     onValueChange = { filterQuery = it },
@@ -160,7 +160,6 @@ fun FrictionAppsScreen(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Quick presets row
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -168,8 +167,11 @@ fun FrictionAppsScreen(
                     OutlinedButton(
                         onClick = {
                             val distracting = SettingsRepository.DEFAULT_DISTRACTING_PACKAGES
-                            val available = apps.map { it.packageName }.toSet()
-                            settingsRepository.setFrictionApps(distracting.intersect(available))
+                            val matchedIds = apps
+                                .filter { it.packageName in distracting }
+                                .map { it.uniqueId }
+                                .toSet()
+                            settingsRepository.setFrictionApps(matchedIds)
                         },
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
                         contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
@@ -180,7 +182,7 @@ fun FrictionAppsScreen(
 
                     OutlinedButton(
                         onClick = {
-                            settingsRepository.setFrictionApps(apps.map { it.packageName }.toSet())
+                            settingsRepository.setFrictionApps(apps.map { it.uniqueId }.toSet())
                         },
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.secondary),
                         contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
@@ -210,7 +212,7 @@ fun FrictionAppsScreen(
                     .padding(padding),
                 contentAlignment = Alignment.Center
             ) {
-                androidx.compose.material3.CircularProgressIndicator(
+                CircularProgressIndicator(
                     color = MaterialTheme.colorScheme.primary,
                     strokeWidth = 2.5.dp
                 )
@@ -233,7 +235,7 @@ fun FrictionAppsScreen(
                         fontSize = 14.sp
                     )
                     if (filterQuery.isNotBlank()) {
-                        androidx.compose.material3.OutlinedButton(
+                        OutlinedButton(
                             onClick = { filterQuery = "" },
                             shape = RoundedCornerShape(10.dp)
                         ) {
@@ -280,7 +282,7 @@ private fun FrictionAppRow(
     isFriction: Boolean,
     onToggle: () -> Unit
 ) {
-    val isMonochrome = com.sushanth.poplauncher.ui.theme.LocalIsMonochromeTheme.current
+    val isMonochrome = LocalIsMonochromeTheme.current
     val bitmap = remember(app.icon, isMonochrome) {
         app.icon?.let { drawableToBitmap(it, isMonochrome) }
     }
@@ -303,7 +305,6 @@ private fun FrictionAppRow(
             Image(
                 bitmap = bitmap.asImageBitmap(),
                 contentDescription = app.label,
-                colorFilter = if (isMonochrome) androidx.compose.ui.graphics.ColorFilter.colorMatrix(androidx.compose.ui.graphics.ColorMatrix().apply { setToSaturation(0f) }) else null,
                 modifier = Modifier
                     .size(40.dp)
                     .clip(CircleShape)
@@ -364,8 +365,4 @@ private fun FrictionAppRow(
             )
         )
     }
-}
-
-private fun drawableToBitmap(drawable: Drawable, isMonochrome: Boolean = false): Bitmap? {
-    return com.sushanth.poplauncher.util.drawableToBitmap(drawable, isMonochrome)
 }

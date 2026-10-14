@@ -3,7 +3,6 @@ package com.sushanth.poplauncher.widgets.custom
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -16,9 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -62,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.json.JSONArray
 import kotlin.math.max
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -114,6 +112,9 @@ fun CustomWidgetCard(
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             onAction(widget.id, action, targetVar, param)
                         }
+                    },
+                    onImmediateChange = { action, targetVar, param ->
+                        onAction(widget.id, action, targetVar, param)
                     }
                 )
             }
@@ -125,7 +126,8 @@ fun CustomWidgetCard(
 private fun RenderWidgetElement(
     element: WidgetElement,
     state: Map<String, String>,
-    onButtonClick: (action: ActionType, targetVar: String, param: String) -> Unit
+    onButtonClick: (action: ActionType, targetVar: String, param: String) -> Unit,
+    onImmediateChange: (action: ActionType, targetVar: String, param: String) -> Unit = onButtonClick
 ) {
     val colors = MaterialTheme.colorScheme
     when (element) {
@@ -184,7 +186,7 @@ private fun RenderWidgetElement(
                 value = textValue,
                 onValueChange = {
                     textValue = it
-                    onButtonClick(ActionType.SET_VALUE, element.targetVar, it)
+                    onImmediateChange(ActionType.SET_VALUE, element.targetVar, it)
                 },
                 placeholder = { Text(element.placeholder, fontSize = 13.sp) },
                 trailingIcon = {
@@ -217,7 +219,14 @@ private fun RenderWidgetElement(
         }
 
         is WidgetElement.Slider -> {
-            val currentVal = state[element.currentVar]?.toFloatOrNull() ?: element.minVal
+            val safeMin = element.minVal
+            val safeMax = max(element.maxVal, safeMin + 0.01f)
+            val currentVal = (state[element.currentVar]?.toFloatOrNull() ?: safeMin).coerceIn(safeMin, safeMax)
+            val stepsCount = if (element.step > 0f && safeMax > safeMin) {
+                ((safeMax - safeMin) / element.step).roundToInt().minus(1).coerceAtLeast(0)
+            } else {
+                0
+            }
 
             Column(modifier = Modifier.fillMaxWidth()) {
                 Row(
@@ -226,18 +235,19 @@ private fun RenderWidgetElement(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "${currentVal.toInt()}",
+                        text = "${currentVal.roundToInt()}",
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
                         color = colors.primary
                     )
                 }
                 Slider(
-                    value = currentVal.coerceIn(element.minVal, element.maxVal),
+                    value = currentVal,
                     onValueChange = { newValue ->
-                        onButtonClick(ActionType.SET_VALUE, element.targetVar, newValue.toInt().toString())
+                        onImmediateChange(ActionType.SET_VALUE, element.targetVar, newValue.roundToInt().toString())
                     },
-                    valueRange = element.minVal..element.maxVal,
+                    valueRange = safeMin..safeMax,
+                    steps = stepsCount,
                     colors = SliderDefaults.colors(
                         thumbColor = colors.primary,
                         activeTrackColor = colors.primary,
@@ -328,23 +338,24 @@ private fun RenderWidgetElement(
         }
 
         is WidgetElement.Row -> {
+            val horizontalArrangement = when (element.alignment.uppercase()) {
+                "CENTER" -> if (element.spacingDp > 0) Arrangement.spacedBy(element.spacingDp.dp, Alignment.CenterHorizontally) else Arrangement.Center
+                "START" -> if (element.spacingDp > 0) Arrangement.spacedBy(element.spacingDp.dp, Alignment.Start) else Arrangement.Start
+                "END" -> if (element.spacingDp > 0) Arrangement.spacedBy(element.spacingDp.dp, Alignment.End) else Arrangement.End
+                else -> Arrangement.SpaceBetween
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = when (element.alignment.uppercase()) {
-                    "CENTER" -> Arrangement.Center
-                    "START" -> Arrangement.Start
-                    "END" -> Arrangement.End
-                    else -> Arrangement.SpaceBetween
-                },
+                horizontalArrangement = horizontalArrangement,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                element.children.forEach { RenderWidgetElement(it, state, onButtonClick) }
+                element.children.forEach { RenderWidgetElement(it, state, onButtonClick, onImmediateChange) }
             }
         }
 
         is WidgetElement.Column -> {
             Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(element.spacingDp.dp)) {
-                element.children.forEach { RenderWidgetElement(it, state, onButtonClick) }
+                element.children.forEach { RenderWidgetElement(it, state, onButtonClick, onImmediateChange) }
             }
         }
 
@@ -359,7 +370,7 @@ private fun RenderWidgetElement(
                     modifier = Modifier.padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(element.spacingDp.dp)
                 ) {
-                    element.children.forEach { RenderWidgetElement(it, state, onButtonClick) }
+                    element.children.forEach { RenderWidgetElement(it, state, onButtonClick, onImmediateChange) }
                 }
             }
         }
@@ -391,9 +402,10 @@ private fun RenderWidgetElement(
                     )
                 } else {
                     itemsList.forEachIndexed { idx, item ->
-                        val itemState = state.toMutableMap()
-                        itemState["item"] = item
-                        itemState["index"] = idx.toString()
+                        val itemState = state.toMutableMap().apply {
+                            put("item", item)
+                            put("index", idx.toString())
+                        }
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -401,7 +413,7 @@ private fun RenderWidgetElement(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Box(modifier = Modifier.weight(1f)) {
-                                RenderWidgetElement(element.itemTemplate, itemState, onButtonClick)
+                                RenderWidgetElement(element.itemTemplate, itemState, onButtonClick, onImmediateChange)
                             }
                             IconButton(
                                 onClick = {

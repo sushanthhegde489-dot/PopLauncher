@@ -14,6 +14,23 @@ import android.util.LruCache
 
 object IconUtils {
 
+    private const val MONO_FG_COLOR = 0xFFF5F5F5.toInt()
+    private const val MONO_BG_COLOR = 0xFF262626.toInt()
+
+    private val grayscaleFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(0f) })
+
+    // Size-bounded cache in kilobytes (1/16th of max heap, clamped between 4 MB and 16 MB)
+    private val maxCacheKb: Int = ((Runtime.getRuntime().maxMemory() / 1024) / 16).toInt().coerceIn(4 * 1024, 16 * 1024)
+    private val bitmapCache = object : LruCache<String, Bitmap>(maxCacheKb) {
+        override fun sizeOf(key: String, value: Bitmap): Int {
+            return (value.allocationByteCount / 1024).coerceAtLeast(1)
+        }
+    }
+
+    fun clearCache() {
+        bitmapCache.evictAll()
+    }
+
     /**
      * Converts a Drawable to a monochrome version.
      * On Android 13+ (API 33+), if the icon is an [AdaptiveIconDrawable] with a themed monochrome layer,
@@ -25,20 +42,15 @@ object IconUtils {
             val mono = drawable.monochrome
             if (mono != null) {
                 val monoCopy = mono.constantState?.newDrawable()?.mutate() ?: mono.mutate()
-                monoCopy.setTint(android.graphics.Color.parseColor("#F5F5F5"))
-                val bg = ColorDrawable(android.graphics.Color.parseColor("#262626"))
+                monoCopy.setTint(MONO_FG_COLOR)
+                val bg = ColorDrawable(MONO_BG_COLOR)
                 return AdaptiveIconDrawable(bg, monoCopy)
             }
         }
         val mutated = drawable.constantState?.newDrawable()?.mutate() ?: drawable.mutate()
-        val matrix = ColorMatrix()
-        matrix.setSaturation(0f)
-        mutated.colorFilter = ColorMatrixColorFilter(matrix)
+        mutated.colorFilter = grayscaleFilter
         return mutated
     }
-
-    private val cacheSize: Int = ((Runtime.getRuntime().maxMemory() / 1024 / 1024).toInt() * 2).coerceIn(100, 300)
-    private val bitmapCache = LruCache<String, Bitmap>(cacheSize)
 
     /**
      * Converts a Drawable to a Bitmap, with optional monochrome conversion.
@@ -50,20 +62,20 @@ object IconUtils {
         targetWidth: Int = 0,
         targetHeight: Int = 0
     ): Bitmap? {
-        val stateKey = drawable.constantState?.hashCode() ?: System.identityHashCode(drawable)
+        val stateKey = System.identityHashCode(drawable.constantState ?: drawable)
         val cacheKey = "${stateKey}_${isMonochrome}_${targetWidth}x$targetHeight"
         val cached = bitmapCache.get(cacheKey)
         if (cached != null && !cached.isRecycled) {
             return cached
         }
-        
+
         return try {
             val bmp = if (isMonochrome) {
                 getMonochromeBitmap(drawable, targetWidth, targetHeight)
             } else {
                 getStandardBitmap(drawable, targetWidth, targetHeight)
             }
-            if (bmp != null) {
+            if (bmp != null && !bmp.isRecycled) {
                 bitmapCache.put(cacheKey, bmp)
             }
             bmp
@@ -89,7 +101,7 @@ object IconUtils {
 
                 // Background: elegant dark circular surface
                 val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = android.graphics.Color.parseColor("#262626")
+                    color = MONO_BG_COLOR
                     style = Paint.Style.FILL
                 }
                 val radius = minOf(width, height) / 2f
@@ -97,7 +109,7 @@ object IconUtils {
 
                 // Monochrome foreground layer tinted light neutral white
                 val monoForeground = mono.constantState?.newDrawable()?.mutate() ?: mono.mutate()
-                monoForeground.setTint(android.graphics.Color.parseColor("#F5F5F5"))
+                monoForeground.setTint(MONO_FG_COLOR)
                 val padding = (minOf(width, height) * 0.18f).toInt()
                 val oldBounds = monoForeground.copyBounds()
                 try {
@@ -111,26 +123,21 @@ object IconUtils {
         }
 
         // 2. Fallback for non-adaptive icons or adaptive icons without a monochrome layer:
-        // Render onto an intermediate canvas and convert with grayscale color matrix
-        val tempBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        val tempCanvas = Canvas(tempBitmap)
+        // Render directly onto a single Bitmap using a grayscale layer paint
+        val finalBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val finalCanvas = Canvas(finalBitmap)
+        val layerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            colorFilter = grayscaleFilter
+        }
+        val saveCount = finalCanvas.saveLayer(0f, 0f, width.toFloat(), height.toFloat(), layerPaint)
         val oldBounds = drawable.copyBounds()
         try {
             drawable.setBounds(0, 0, width, height)
-            drawable.draw(tempCanvas)
+            drawable.draw(finalCanvas)
         } finally {
             drawable.bounds = oldBounds
+            finalCanvas.restoreToCount(saveCount)
         }
-
-        val finalBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        val finalCanvas = Canvas(finalBitmap)
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            val matrix = ColorMatrix()
-            matrix.setSaturation(0f)
-            colorFilter = ColorMatrixColorFilter(matrix)
-        }
-        finalCanvas.drawBitmap(tempBitmap, 0f, 0f, paint)
-        tempBitmap.recycle()
         return finalBitmap
     }
 

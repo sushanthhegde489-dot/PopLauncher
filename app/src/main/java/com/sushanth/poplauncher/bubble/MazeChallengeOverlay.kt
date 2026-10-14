@@ -35,8 +35,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,8 +49,6 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -72,7 +70,6 @@ import com.sushanth.poplauncher.data.model.SearchEntity
 import com.sushanth.poplauncher.ui.theme.LocalIsMonochromeTheme
 import com.sushanth.poplauncher.util.drawableToBitmap
 import kotlinx.coroutines.launch
-import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 import kotlin.random.Random
@@ -117,6 +114,7 @@ fun MazeChallengeOverlay(
 
     val corridorWidthPx = with(density) { 56.dp.toPx() }
     val iconRadiusPx = with(density) { 26.dp.toPx() }
+    val flagHalfSizePx = with(density) { 16.dp.toPx() }
 
     // Procedurally generated random maze waypoints on each launch
     val waypoints = remember(mazeWidthPx, mazeHeightPx) {
@@ -258,8 +256,8 @@ fun MazeChallengeOverlay(
                         modifier = Modifier
                             .offset {
                                 IntOffset(
-                                    (goalNode.x - with(density) { 16.dp.toPx() }).roundToInt(),
-                                    (goalNode.y - with(density) { 16.dp.toPx() }).roundToInt()
+                                    (goalNode.x - flagHalfSizePx).roundToInt(),
+                                    (goalNode.y - flagHalfSizePx).roundToInt()
                                 )
                             }
                             .size(32.dp),
@@ -304,7 +302,7 @@ fun MazeChallengeOverlay(
                                     true
                                 }
                             }
-                            .pointerInput(Unit) {
+                            .pointerInput(waypoints) {
                                 detectDragGestures(
                                     onDragStart = {
                                         triggerLightHaptic(vibrator)
@@ -339,16 +337,16 @@ fun MazeChallengeOverlay(
                                             // Wall Collision! Reset to Start
                                             triggerWallCollisionHaptic(vibrator)
                                             scope.launch {
-                                                animX.animateTo(startNode.x, spring())
-                                                animY.animateTo(startNode.y, spring())
+                                                launch { animX.animateTo(startNode.x, spring()) }
+                                                launch { animY.animateTo(startNode.y, spring()) }
                                             }
                                         }
                                     },
                                     onDragEnd = {
                                         if (!isSuccess) {
                                             scope.launch {
-                                                animX.animateTo(startNode.x, spring())
-                                                animY.animateTo(startNode.y, spring())
+                                                launch { animX.animateTo(startNode.x, spring()) }
+                                                launch { animY.animateTo(startNode.y, spring()) }
                                             }
                                         }
                                     }
@@ -360,7 +358,6 @@ fun MazeChallengeOverlay(
                             Image(
                                 bitmap = appBitmap.asImageBitmap(),
                                 contentDescription = app.title,
-                                colorFilter = if (isMonochrome) ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) }) else null,
                                 modifier = Modifier
                                     .size(38.dp)
                                     .clip(CircleShape)
@@ -425,6 +422,8 @@ private fun triggerHeavyHaptic(vibrator: Vibrator?) {
     }
 }
 
+private val MAZE_DIRECTIONS = listOf(-1 to 0, 1 to 0, 0 to 1, 0 to -1)
+
 private fun generateRandomMazeWaypoints(widthPx: Float, heightPx: Float): List<Offset> {
     if (widthPx <= 0f || heightPx <= 0f) {
         return listOf(Offset(50f, 50f), Offset(200f, 300f))
@@ -459,7 +458,7 @@ private fun generateRandomMazeWaypoints(widthPx: Float, heightPx: Float): List<O
             return true
         }
 
-        val dirs = listOf(-1 to 0, 1 to 0, 0 to 1, 0 to -1).shuffled()
+        val dirs = MAZE_DIRECTIONS.shuffled()
         for ((dc, dr) in dirs) {
             val nc = c + dc
             val nr = r + dr

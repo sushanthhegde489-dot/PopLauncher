@@ -237,7 +237,6 @@ fun DedicatedWidgetPage(
             // 1. GRID OVERLAY & PLACEMENT PREVIEW (Visible during move or resize)
             if (isGridActive) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
-                    // Draw Grid Mesh Lines
                     for (col in 0..GRID_COLUMNS) {
                         drawLine(
                             color = gridLineColor,
@@ -260,7 +259,7 @@ fun DedicatedWidgetPage(
             // Render Preview Placement Box when Dragging
             if (draggingKey != null) {
                 val dragTarget = allItems.firstOrNull { it.key == draggingKey }
-                if (dragTarget != null) {
+                if (dragTarget != null && cellWidthPx > 0f && cellHeightPx > 0f) {
                     val currentLayout = widgetLayouts[dragTarget.key]
                         ?: WidgetLayout(
                             dragTarget.key,
@@ -359,7 +358,7 @@ fun DedicatedWidgetPage(
                             )
                             .then(
                                 if (canMove) {
-                                    Modifier.pointerInput(key) {
+                                    Modifier.pointerInput(key, layout, cellWidth, cellHeight) {
                                         detectDragGestures(
                                             onDragStart = {
                                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -369,7 +368,7 @@ fun DedicatedWidgetPage(
                                                 dragOffsetY = 0f
                                             },
                                             onDragEnd = {
-                                                if (draggingKey == key) {
+                                                if (draggingKey == key && cellWidth.value > 0f && cellHeight.value > 0f) {
                                                     val deltaXCells = (dragOffsetX.dp / cellWidth).roundToInt()
                                                     val deltaYCells = (dragOffsetY.dp / cellHeight).roundToInt()
 
@@ -537,7 +536,7 @@ private fun FourDirectionalResizeOverlay(
                             if (dragAccX < -30f && layout.gridX > 0) {
                                 onUpdateLayout(layout.gridX - 1, layout.gridY, (layout.spanX + 1).coerceAtMost(GRID_COLUMNS - (layout.gridX - 1)), layout.spanY)
                                 dragAccX = 0f
-                            } else if (dragAccX > 30f && layout.spanY > 1) {
+                            } else if (dragAccX > 30f && layout.spanX > 1) {
                                 onUpdateLayout(layout.gridX + 1, layout.gridY, layout.spanX - 1, layout.spanY)
                                 dragAccX = 0f
                             }
@@ -641,7 +640,7 @@ private fun FourDirectionalResizeOverlay(
                         onClick = {
                             if (layout.spanY > 1) {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                onUpdateLayout(layout.gridX, layout.gridY, layout.spanX - 1, layout.spanY)
+                                onUpdateLayout(layout.gridX, layout.gridY, layout.spanX, layout.spanY - 1)
                             }
                         },
                         modifier = Modifier.size(28.dp)
@@ -716,12 +715,14 @@ private fun WidgetHostCard(
                 .padding(8.dp),
             contentAlignment = Alignment.Center
         ) {
-            AndroidView(
-                factory = { ctx ->
-                    host.createView(ctx, widgetId, info).apply { setAppWidget(widgetId, info) }
-                },
-                modifier = Modifier.fillMaxSize()
-            )
+            key(widgetId) {
+                AndroidView(
+                    factory = { ctx ->
+                        host.createView(ctx, widgetId, info).apply { setAppWidget(widgetId, info) }
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
         }
     }
 }
@@ -836,4 +837,3 @@ private fun IconPlaceholder() {
         modifier = Modifier.size(40.dp)
     )
 }
-

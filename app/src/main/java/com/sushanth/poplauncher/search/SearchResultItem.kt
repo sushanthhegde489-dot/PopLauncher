@@ -2,16 +2,14 @@ package com.sushanth.poplauncher.search
 
 import android.content.ContentUris
 import android.content.Intent
-import android.util.LruCache
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.drawable.Drawable
-import com.sushanth.poplauncher.util.drawableToBitmap
 import android.media.ThumbnailUtils
 import android.net.Uri
-import androidx.core.net.toUri
 import android.os.Build
 import android.provider.MediaStore
+import android.util.LruCache
 import android.util.Size
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -49,43 +47,49 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.net.toUri
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.sushanth.poplauncher.MainActivity
 import com.sushanth.poplauncher.data.model.AppEntity
-import com.sushanth.poplauncher.data.model.CallEntity
+import com.sushanth.poplauncher.data.model.AppGroupEntity
 import com.sushanth.poplauncher.data.model.ConversationEntity
 import com.sushanth.poplauncher.data.model.DeepSearchEntity
 import com.sushanth.poplauncher.data.model.FileEntity
 import com.sushanth.poplauncher.data.model.MediaEntity
-import com.sushanth.poplauncher.data.model.MessageEntity
 import com.sushanth.poplauncher.data.model.PersonEntity
 import com.sushanth.poplauncher.data.model.SearchEntity
 import com.sushanth.poplauncher.data.model.WebOverviewEntity
 import com.sushanth.poplauncher.ui.theme.LocalIsMonochromeTheme
+import com.sushanth.poplauncher.util.drawableToBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+
+private val MonochromeComposeColorFilter = ColorFilter.colorMatrix(
+    ColorMatrix().apply { setToSaturation(0f) }
+)
 
 @Composable
 fun SearchResultItem(
@@ -272,7 +276,7 @@ private fun WebOverviewCard(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 val isMonochrome = LocalIsMonochromeTheme.current
                 entity.deepSearchOptions.forEach { option ->
-                    val optionIconDrawable = remember(option.appPackage) {
+                    val optionIconDrawable = remember(option.appPackage, isMonochrome) {
                         getAppIcon?.invoke(option.appPackage)
                     }
                     val optionBitmap = remember(optionIconDrawable, isMonochrome) {
@@ -300,9 +304,6 @@ private fun WebOverviewCard(
                                 Image(
                                     bitmap = optionBitmap.asImageBitmap(),
                                     contentDescription = option.source,
-                                    colorFilter = if (isMonochrome) ColorFilter.colorMatrix(
-                                        ColorMatrix().apply { setToSaturation(0f) }
-                                ) else null,
                                     modifier = Modifier
                                         .size(20.dp)
                                         .clip(CircleShape)
@@ -348,6 +349,9 @@ private fun PersonResultCard(
     onSubActionClick: (SearchEntity) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val isMonochrome = LocalIsMonochromeTheme.current
+
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -370,12 +374,30 @@ private fun PersonResultCard(
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f))
             ) {
-                Icon(
-                    imageVector = Icons.Outlined.Person,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(22.dp)
-                )
+                if (!person.iconUri.isNullOrBlank()) {
+                    val personPlaceholder = rememberVectorPainter(Icons.Outlined.Person)
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(person.iconUri)
+                            .crossfade(true)
+                            .size(128, 128)
+                            .build(),
+                        contentDescription = person.title,
+                        contentScale = ContentScale.Crop,
+                        colorFilter = if (isMonochrome) MonochromeComposeColorFilter else null,
+                        placeholder = personPlaceholder,
+                        error = personPlaceholder,
+                        fallback = personPlaceholder,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Outlined.Person,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.width(12.dp))
@@ -396,7 +418,6 @@ private fun PersonResultCard(
                 }
             }
 
-            val context = LocalContext.current
             val primaryPhone = person.phoneNumbers.firstOrNull() ?: person.subtitle
             IconButton(
                 onClick = {
@@ -408,7 +429,7 @@ private fun PersonResultCard(
                         try {
                             context.startActivity(dialIntent)
                         } catch (_: Exception) {
-                            (context as? com.sushanth.poplauncher.MainActivity)?.openDialer(primaryPhone)
+                            (context as? MainActivity)?.openDialer(primaryPhone)
                         }
                     } else {
                         onPrimaryClick()
@@ -429,9 +450,8 @@ private fun PersonResultCard(
         if (person.relatedConversations.isNotEmpty()) {
             Spacer(modifier = Modifier.height(10.dp))
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                val isMonochrome = LocalIsMonochromeTheme.current
                 person.relatedConversations.forEach { conv ->
-                    val convAppDrawable = remember(conv.appPackage) {
+                    val convAppDrawable = remember(conv.appPackage, isMonochrome) {
                         conv.appPackage?.let { getAppIcon?.invoke(it) }
                     }
                     val convAppBitmap = remember(convAppDrawable, isMonochrome) {
@@ -451,9 +471,6 @@ private fun PersonResultCard(
                             Image(
                                 bitmap = convAppBitmap.asImageBitmap(),
                                 contentDescription = conv.source,
-                                colorFilter = if (isMonochrome) ColorFilter.colorMatrix(
-                                    ColorMatrix().apply { setToSaturation(0f) }
-                                ) else null,
                                 modifier = Modifier
                                     .size(20.dp)
                                     .clip(CircleShape)
@@ -492,6 +509,13 @@ private fun PersonResultCard(
     }
 }
 
+private val MEDIA_EXTENSIONS = listOf(
+    ".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic", ".heif",
+    ".mp4", ".mkv", ".mov", ".avi", ".3gp"
+)
+private val VIDEO_EXTENSIONS = listOf(".mp4", ".mkv", ".mov", ".avi", ".3gp", ".webm")
+private val IMAGE_EXTENSIONS = listOf(".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic", ".heif", ".bmp")
+
 @Composable
 private fun StandardResultRow(
     entity: SearchEntity,
@@ -508,7 +532,7 @@ private fun StandardResultRow(
             ((entity as? FileEntity)?.mimeType?.startsWith("image/") == true) ||
             ((entity as? FileEntity)?.mimeType?.startsWith("video/") == true) ||
             ((entity as? FileEntity)?.title?.lowercase()?.let { title ->
-                listOf(".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic", ".heif", ".mp4", ".mkv", ".mov", ".avi", ".3gp").any { title.endsWith(it) }
+                MEDIA_EXTENSIONS.any { title.endsWith(it) }
             } == true)
 
     Row(
@@ -534,8 +558,6 @@ private fun StandardResultRow(
                 Image(
                     bitmap = bitmap.asImageBitmap(),
                     contentDescription = entity.title,
-                    colorFilter = if (isMonochrome) ColorFilter.colorMatrix(
-                        ColorMatrix().apply { setToSaturation(0f) }) else null,
                     modifier = Modifier
                         .size(32.dp)
                         .clip(CircleShape)
@@ -551,10 +573,8 @@ private fun StandardResultRow(
             ) {
                 val vector: ImageVector = when (entity) {
                     is AppEntity -> Icons.Outlined.Widgets
-                    is com.sushanth.poplauncher.data.model.AppGroupEntity -> Icons.Outlined.Folder
+                    is AppGroupEntity -> Icons.Outlined.Folder
                     is ConversationEntity -> Icons.AutoMirrored.Outlined.Message
-                    is MessageEntity -> Icons.AutoMirrored.Outlined.Message
-                    is CallEntity -> Icons.Outlined.Call
                     is FileEntity -> Icons.Outlined.Description
                     is DeepSearchEntity -> Icons.Outlined.Search
                     else -> Icons.Outlined.Widgets
@@ -606,7 +626,7 @@ private fun StandardResultRow(
                     modifier = Modifier.size(16.dp)
                 )
             }
-        } else if (entity is ConversationEntity || entity is MessageEntity || entity is CallEntity) {
+        } else if (entity is ConversationEntity) {
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
@@ -614,13 +634,8 @@ private fun StandardResultRow(
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f))
             ) {
-                val vector = when (entity) {
-                    is CallEntity -> Icons.Outlined.Call
-                    is MessageEntity -> Icons.AutoMirrored.Outlined.Message
-                    else -> Icons.AutoMirrored.Outlined.ArrowForward
-                }
                 Icon(
-                    imageVector = vector,
+                    imageVector = Icons.AutoMirrored.Outlined.ArrowForward,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.secondary,
                     modifier = Modifier.size(13.dp)
@@ -630,8 +645,34 @@ private fun StandardResultRow(
     }
 }
 
-private val thumbnailCacheLock = Any()
-private val thumbnailMemoryCache = LruCache<String, Bitmap>(64)
+// Bounded memory cache in KB (max 6 MB) for media thumbnails
+private val thumbnailMemoryCache = object : LruCache<String, Bitmap>(6 * 1024) {
+    override fun sizeOf(key: String, value: Bitmap): Int {
+        return (value.allocationByteCount / 1024).coerceAtLeast(1)
+    }
+}
+
+private fun decodeSampledBitmapFromFile(filePath: String, reqWidth: Int, reqHeight: Int): Bitmap? {
+    return try {
+        val options = BitmapFactory.Options().apply {
+            inJustDecodeBounds = true
+        }
+        BitmapFactory.decodeFile(filePath, options)
+        var inSampleSize = 1
+        if (options.outHeight > reqHeight || options.outWidth > reqWidth) {
+            val halfHeight = options.outHeight / 2
+            val halfWidth = options.outWidth / 2
+            while ((halfHeight / inSampleSize) >= reqHeight && (halfWidth / inSampleSize) >= reqWidth) {
+                inSampleSize *= 2
+            }
+        }
+        options.inJustDecodeBounds = false
+        options.inSampleSize = inSampleSize
+        BitmapFactory.decodeFile(filePath, options)
+    } catch (_: Throwable) {
+        null
+    }
+}
 
 @Composable
 private fun MediaItemThumbnail(
@@ -640,28 +681,27 @@ private fun MediaItemThumbnail(
 ) {
     val context = LocalContext.current
     val isMonochrome = LocalIsMonochromeTheme.current
-    var thumbnailBitmap by remember(entity.id) {
-        val cached = synchronized(thumbnailCacheLock) {
-            thumbnailMemoryCache[entity.id]
-        }
-        mutableStateOf(cached?.takeIf { !it.isRecycled })
+    val initialCached = remember(entity.id) {
+        thumbnailMemoryCache.get(entity.id)?.takeIf { !it.isRecycled }
     }
+    var thumbnailBitmap by remember(entity.id) { mutableStateOf(initialCached) }
+    var loadAttempted by remember(entity.id) { mutableStateOf(initialCached != null) }
 
     val isVideo = (entity as? MediaEntity)?.isVideo == true ||
             (entity as? FileEntity)?.mimeType?.startsWith("video/") == true ||
             (entity as? FileEntity)?.title?.lowercase()?.let { title ->
-                listOf(".mp4", ".mkv", ".mov", ".avi", ".3gp", ".webm").any { title.endsWith(it) }
+                VIDEO_EXTENSIONS.any { title.endsWith(it) }
             } == true
 
     val isImage = entity is MediaEntity ||
             (entity as? FileEntity)?.mimeType?.startsWith("image/") == true ||
             (entity as? FileEntity)?.title?.lowercase()?.let { title ->
-                listOf(".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic", ".heif", ".bmp").any { title.endsWith(it) }
+                IMAGE_EXTENSIONS.any { title.endsWith(it) }
             } == true
 
     LaunchedEffect(entity.id) {
         if (thumbnailBitmap != null) return@LaunchedEffect
-        withContext(Dispatchers.IO) {
+        val loaded = withContext(Dispatchers.IO) {
             try {
                 val bitmap: Bitmap? = when (entity) {
                     is MediaEntity -> {
@@ -691,35 +731,35 @@ private fun MediaItemThumbnail(
                     is FileEntity -> {
                         val fileUri = entity.launchIntent?.data
                         fileUri?.let { uri ->
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                                    try {
-                                        context.contentResolver.loadThumbnail(uri, Size(160, 160), null)
-                                    } catch (_: Exception) { null }
-                                } else if (uri.scheme == "file" && uri.path != null) {
-                                    val filePath = uri.path!!
-                                    if (isVideo) {
-                                        @Suppress("DEPRECATION")
-                                        ThumbnailUtils.createVideoThumbnail(
-                                            filePath, MediaStore.Images.Thumbnails.MINI_KIND
-                                        )
-                                    } else if (isImage) {
-                                        BitmapFactory.decodeFile(filePath)
-                                    } else null
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                try {
+                                    context.contentResolver.loadThumbnail(uri, Size(160, 160), null)
+                                } catch (_: Exception) { null }
+                            } else if (uri.scheme == "file" && uri.path != null) {
+                                val filePath = uri.path!!
+                                if (isVideo) {
+                                    @Suppress("DEPRECATION")
+                                    ThumbnailUtils.createVideoThumbnail(
+                                        filePath, MediaStore.Images.Thumbnails.MINI_KIND
+                                    )
+                                } else if (isImage) {
+                                    decodeSampledBitmapFromFile(filePath, 160, 160)
                                 } else null
+                            } else null
                         }
                     }
                     else -> null
                 }
                 if (bitmap != null && !bitmap.isRecycled) {
-                    synchronized(thumbnailCacheLock) {
-                        thumbnailMemoryCache.put(entity.id, bitmap)
-                    }
+                    thumbnailMemoryCache.put(entity.id, bitmap)
                 }
-                thumbnailBitmap = bitmap?.takeIf { !it.isRecycled }
+                bitmap?.takeIf { !it.isRecycled }
             } catch (_: Exception) {
-                thumbnailBitmap = null
+                null
             }
         }
+        thumbnailBitmap = loaded
+        loadAttempted = true
     }
 
     Box(
@@ -729,65 +769,38 @@ private fun MediaItemThumbnail(
             .clip(RoundedCornerShape(10.dp))
             .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f))
     ) {
-        if (thumbnailBitmap != null && !thumbnailBitmap!!.isRecycled) {
+        val currentBitmap = thumbnailBitmap
+        if (currentBitmap != null && !currentBitmap.isRecycled) {
             Image(
-                bitmap = thumbnailBitmap!!.asImageBitmap(),
+                bitmap = currentBitmap.asImageBitmap(),
                 contentDescription = entity.title,
                 contentScale = ContentScale.Crop,
-                colorFilter = if (isMonochrome) ColorFilter.colorMatrix(
-                    ColorMatrix().apply { setToSaturation(0f) }
-                ) else null,
+                colorFilter = if (isMonochrome) MonochromeComposeColorFilter else null,
                 modifier = Modifier.fillMaxSize()
             )
             if (isVideo) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(20.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.55f))
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.PlayArrow,
-                        contentDescription = "Video",
-                        tint = Color.White,
-                        modifier = Modifier.size(13.dp)
-                    )
-                }
+                VideoBadgeOverlay()
             }
         } else {
-            // Coil AsyncImage Fallback for Content Uris
             val mediaUri = (entity as? MediaEntity)?.iconUri ?: (entity as? FileEntity)?.launchIntent?.data?.toString()
-            if (!mediaUri.isNullOrBlank()) {
+            if (loadAttempted && !mediaUri.isNullOrBlank()) {
                 val placeholderPainter = rememberVectorPainter(if (isVideo) Icons.Outlined.Videocam else Icons.Outlined.Image)
                 AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
+                    model = ImageRequest.Builder(context)
                         .data(mediaUri)
                         .crossfade(true)
                         .size(160, 160)
                         .build(),
                     contentDescription = entity.title,
                     contentScale = ContentScale.Crop,
+                    colorFilter = if (isMonochrome) MonochromeComposeColorFilter else null,
                     placeholder = placeholderPainter,
                     error = placeholderPainter,
                     fallback = placeholderPainter,
                     modifier = Modifier.fillMaxSize()
                 )
                 if (isVideo) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .size(20.dp)
-                            .clip(CircleShape)
-                            .background(Color.Black.copy(alpha = 0.55f))
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.PlayArrow,
-                            contentDescription = "Video",
-                            tint = Color.White,
-                            modifier = Modifier.size(13.dp)
-                        )
-                    }
+                    VideoBadgeOverlay()
                 }
             } else {
                 val vector = if (isVideo) Icons.Outlined.Videocam else Icons.Outlined.Image
@@ -799,5 +812,23 @@ private fun MediaItemThumbnail(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun VideoBadgeOverlay() {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .size(20.dp)
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.55f))
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.PlayArrow,
+            contentDescription = "Video",
+            tint = Color.White,
+            modifier = Modifier.size(13.dp)
+        )
     }
 }

@@ -13,7 +13,7 @@ class WallpaperTileService : TileService() {
 
     override fun onCreate() {
         super.onCreate()
-        settingsRepository = SettingsRepository(this)
+        settingsRepository = SettingsRepository(applicationContext)
     }
 
     override fun onStartListening() {
