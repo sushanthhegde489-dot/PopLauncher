@@ -165,6 +165,51 @@ object IconUtils {
         }
         return bitmap
     }
+
+    /**
+     * Extracts a dominant, vibrant logo color from an icon Bitmap.
+     * Uses a fast spatial sampling grid and favors saturated, readable colors.
+     */
+    fun extractDominantColor(bitmap: Bitmap?, defaultColor: Int): Int {
+        if (bitmap == null || bitmap.isRecycled) return defaultColor
+        val width = bitmap.width
+        val height = bitmap.height
+        if (width <= 0 || height <= 0) return defaultColor
+
+        val stepX = (width / 16).coerceAtLeast(1)
+        val stepY = (height / 16).coerceAtLeast(1)
+
+        var bestColor = defaultColor
+        var highestScore = -1f
+
+        for (y in 0 until height step stepY) {
+            for (x in 0 until width step stepX) {
+                val pixel = bitmap.getPixel(x, y)
+                val alpha = (pixel ushr 24) and 0xFF
+                if (alpha < 70) continue // Skip transparent or translucent pixels
+
+                val r = (pixel ushr 16) and 0xFF
+                val g = (pixel ushr 8) and 0xFF
+                val b = pixel and 0xFF
+
+                val maxC = maxOf(r, g, b)
+                val minC = minOf(r, g, b)
+                val delta = maxC - minC
+                val saturation = if (maxC == 0) 0f else delta.toFloat() / maxC.toFloat()
+                val brightness = maxC.toFloat() / 255f
+
+                // Avoid near-black and near-white pixels if possible
+                val brightnessWeight = if (brightness in 0.2f..0.85f) 1.0f else 0.4f
+                val score = saturation * 2.0f + brightnessWeight
+
+                if (score > highestScore) {
+                    highestScore = score
+                    bestColor = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+                }
+            }
+        }
+        return bestColor
+    }
 }
 
 /** Convenience top-level function for converting drawables to bitmaps */
@@ -174,3 +219,7 @@ fun drawableToBitmap(
     targetWidth: Int = 0,
     targetHeight: Int = 0
 ): Bitmap? = IconUtils.drawableToBitmap(drawable, isMonochrome, targetWidth, targetHeight)
+
+/** Convenience top-level function for extracting dominant color from a bitmap */
+fun extractDominantColor(bitmap: Bitmap?, defaultColor: Int): Int =
+    IconUtils.extractDominantColor(bitmap, defaultColor)

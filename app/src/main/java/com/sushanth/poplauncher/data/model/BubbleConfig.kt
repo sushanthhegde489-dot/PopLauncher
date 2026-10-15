@@ -29,6 +29,24 @@ data class BubbleConfig(
     val idleDelayMs: Long = 800L
 )
 
+enum class AnimationLevel(val label: String, val scale: Float) {
+    OFF("Off (Instant)", 0.0f),
+    REDUCED("Reduced (0.5x)", 0.5f),
+    STANDARD("Standard (1.0x)", 1.0f),
+    EXPRESSIVE("Expressive (1.5x)", 1.5f)
+}
+
+enum class AiLaunchMode(val label: String) {
+    VOICE_DICTATION("Voice & Dictation"),
+    TEXT_CHAT("Text Chat")
+}
+
+data class AiOverviewHistoryItem(
+    val query: String,
+    val summary: String,
+    val timestamp: Long = System.currentTimeMillis()
+)
+
 data class LauncherSettings(
     val frictionAppPackages: Set<String> = emptySet(),
     val hiddenAppPackages: Set<String> = emptySet(),
@@ -40,7 +58,6 @@ data class LauncherSettings(
     val popDifficulty: PopDifficulty = PopDifficulty.NORMAL,
     val enabledProviders: Set<SearchType> = setOf(
         SearchType.APP,
-        SearchType.PERSON,
         SearchType.CONVERSATION,
         SearchType.FILE,
         SearchType.MEDIA
@@ -56,6 +73,11 @@ data class LauncherSettings(
     val clock24Hour: Boolean = true,
     val showDate: Boolean = true,
     val searchAnimationEnabled: Boolean = true,
+    val animationLevel: AnimationLevel = AnimationLevel.STANDARD,
+    val hideStatusBarOnHomeScreen: Boolean = false,
+    val defaultAiAppPackage: String = "",
+    val defaultAiMode: AiLaunchMode = AiLaunchMode.VOICE_DICTATION,
+    val aiOverviewHistory: List<AiOverviewHistoryItem> = emptyList(),
     val geminiApiKey: String = "",
     val gestureDoubleTap: GestureConfig = GestureConfig(actionType = GestureActionType.NONE),
     val gestureTripleTap: GestureConfig = GestureConfig(actionType = GestureActionType.NONE),

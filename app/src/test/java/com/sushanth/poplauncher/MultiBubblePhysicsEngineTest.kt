@@ -158,4 +158,34 @@ class MultiBubblePhysicsEngineTest {
         b1.velX = 50f
         assertFalse("Engine should not be settled when velocity is high", engine.isSettled)
     }
+
+    @Test
+    fun testObstacleDeflectsBubble() {
+        val apps = listOf(
+            createApp("app1", "App One")
+        )
+        val engine = MultiBubblePhysicsEngine(apps, BubbleConfig(speed = BubbleSpeed.NORMAL), bubbleSizePx = 100f)
+        engine.updateBounds(0f, 1000f, 0f, 1000f)
+
+        // Place obstacle at (500, 500) with radius 50
+        engine.updateObstacle(500f, 500f, 50f, 0f, 0f)
+
+        val b1 = engine.bodies[0]
+        // Place bubble moving directly right towards the obstacle
+        b1.posX = 350f
+        b1.posY = 500f - 50f // Center is at 500
+        b1.velX = 200f
+        b1.velY = 0f
+
+        var deflected = false
+        for (i in 0 until 120) {
+            engine.update(1f / 60f)
+            if (b1.velX < 0f) {
+                deflected = true
+                break
+            }
+        }
+
+        assertTrue("Bubble should have deflected off the rigid obstacle and reversed X velocity", deflected)
+    }
 }

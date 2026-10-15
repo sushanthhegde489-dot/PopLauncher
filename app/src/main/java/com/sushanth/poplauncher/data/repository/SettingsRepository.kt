@@ -3,6 +3,9 @@ package com.sushanth.poplauncher.data.repository
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
+import com.sushanth.poplauncher.data.model.AiLaunchMode
+import com.sushanth.poplauncher.data.model.AiOverviewHistoryItem
+import com.sushanth.poplauncher.data.model.AnimationLevel
 import com.sushanth.poplauncher.data.model.AppGroup
 import com.sushanth.poplauncher.data.model.BubbleBehavior
 import com.sushanth.poplauncher.data.model.BubbleConfig
@@ -19,6 +22,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONArray
+import org.json.JSONObject
 
 class SettingsRepository(context: Context) {
     private val prefs: SharedPreferences =
@@ -42,7 +46,6 @@ class SettingsRepository(context: Context) {
             ?.toSet()
             ?: setOf(
                 SearchType.APP,
-                SearchType.PERSON,
                 SearchType.CONVERSATION,
                 SearchType.FILE,
                 SearchType.MEDIA
@@ -61,6 +64,11 @@ class SettingsRepository(context: Context) {
         val clock24Hour = prefs.getBoolean(KEY_CLOCK_24_HOUR, true)
         val showDate = prefs.getBoolean(KEY_SHOW_DATE, true)
         val searchAnimationEnabled = prefs.getBoolean(KEY_SEARCH_ANIMATION, true)
+        val animationLevel = enumOrDefault(prefs.getString(KEY_ANIMATION_LEVEL, null), AnimationLevel.STANDARD)
+        val hideStatusBar = prefs.getBoolean(KEY_HIDE_STATUS_BAR, false)
+        val defaultAiPackage = prefs.getString(KEY_DEFAULT_AI_APP_PACKAGE, "") ?: ""
+        val defaultAiMode = enumOrDefault(prefs.getString(KEY_DEFAULT_AI_MODE, null), AiLaunchMode.VOICE_DICTATION)
+        val aiOverviewHistory = parseAiOverviewHistory(prefs.getString(KEY_AI_OVERVIEW_HISTORY, null))
 
         val gestureDoubleTap = GestureConfig.fromSerialized(
             prefs.getString(KEY_GESTURE_DOUBLE_TAP, null)
@@ -98,6 +106,11 @@ class SettingsRepository(context: Context) {
             clock24Hour = clock24Hour,
             showDate = showDate,
             searchAnimationEnabled = searchAnimationEnabled,
+            animationLevel = animationLevel,
+            hideStatusBarOnHomeScreen = hideStatusBar,
+            defaultAiAppPackage = defaultAiPackage,
+            defaultAiMode = defaultAiMode,
+            aiOverviewHistory = aiOverviewHistory,
             geminiApiKey = geminiApiKey,
             gestureDoubleTap = gestureDoubleTap,
             gestureTripleTap = gestureTripleTap,
@@ -344,6 +357,76 @@ class SettingsRepository(context: Context) {
         }.getOrDefault(emptyList())
     }
 
+    fun setAnimationLevel(level: AnimationLevel) {
+        prefs.edit { putString(KEY_ANIMATION_LEVEL, level.name) }
+        _settings.value = _settings.value.copy(animationLevel = level)
+    }
+
+    fun setHideStatusBarOnHomeScreen(hide: Boolean) {
+        prefs.edit { putBoolean(KEY_HIDE_STATUS_BAR, hide) }
+        _settings.value = _settings.value.copy(hideStatusBarOnHomeScreen = hide)
+    }
+
+    fun setDefaultAiAppPackage(pkg: String) {
+        prefs.edit { putString(KEY_DEFAULT_AI_APP_PACKAGE, pkg.trim()) }
+        _settings.value = _settings.value.copy(defaultAiAppPackage = pkg.trim())
+    }
+
+    fun setDefaultAiMode(mode: AiLaunchMode) {
+        prefs.edit { putString(KEY_DEFAULT_AI_MODE, mode.name) }
+        _settings.value = _settings.value.copy(defaultAiMode = mode)
+    }
+
+    fun addAiOverviewHistory(query: String, summary: String) {
+        val trimmedQuery = query.trim()
+        val trimmedSummary = summary.trim()
+        if (trimmedQuery.isEmpty() || trimmedSummary.isEmpty()) return
+
+        val currentList = _settings.value.aiOverviewHistory.toMutableList()
+        currentList.removeAll { it.query.equals(trimmedQuery, ignoreCase = true) }
+        currentList.add(0, AiOverviewHistoryItem(trimmedQuery, trimmedSummary, System.currentTimeMillis()))
+        val limited = currentList.take(10)
+
+        saveAiOverviewHistory(limited)
+        _settings.value = _settings.value.copy(aiOverviewHistory = limited)
+    }
+
+    fun clearAiOverviewHistory() {
+        prefs.edit { remove(KEY_AI_OVERVIEW_HISTORY) }
+        _settings.value = _settings.value.copy(aiOverviewHistory = emptyList())
+    }
+
+    private fun saveAiOverviewHistory(list: List<AiOverviewHistoryItem>) {
+        val arr = JSONArray()
+        for (item in list) {
+            val obj = JSONObject().apply {
+                put("query", item.query)
+                put("summary", item.summary)
+                put("timestamp", item.timestamp)
+            }
+            arr.put(obj)
+        }
+        prefs.edit { putString(KEY_AI_OVERVIEW_HISTORY, arr.toString()) }
+    }
+
+    private fun parseAiOverviewHistory(raw: String?): List<AiOverviewHistoryItem> {
+        if (raw.isNullOrBlank()) return emptyList()
+        return runCatching {
+            val arr = JSONArray(raw)
+            val list = mutableListOf<AiOverviewHistoryItem>()
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                val q = obj.optString("query") ?: ""
+                val s = obj.optString("summary") ?: ""
+                val t = obj.optLong("timestamp", System.currentTimeMillis())
+                if (q.isNotBlank() && s.isNotBlank()) {
+                    list.add(AiOverviewHistoryItem(q, s, t))
+                }
+            }
+            list
+        }.getOrDefault(emptyList())
+    }
+
     fun getBubbleConfig(): BubbleConfig {
         val s = _settings.value
         return BubbleConfig(speed = s.bubbleSpeed, behavior = s.bubbleBehavior, popDifficulty = s.popDifficulty)
@@ -372,6 +455,11 @@ class SettingsRepository(context: Context) {
         private const val KEY_CLOCK_24_HOUR = "clock_24_hour"
         private const val KEY_SHOW_DATE = "show_date"
         private const val KEY_SEARCH_ANIMATION = "search_animation"
+        private const val KEY_ANIMATION_LEVEL = "animation_level"
+        private const val KEY_HIDE_STATUS_BAR = "hide_status_bar_home"
+        private const val KEY_DEFAULT_AI_APP_PACKAGE = "default_ai_app_package"
+        private const val KEY_DEFAULT_AI_MODE = "default_ai_mode"
+        private const val KEY_AI_OVERVIEW_HISTORY = "ai_overview_history_v1"
         private const val KEY_GESTURE_DOUBLE_TAP = "gesture_double_tap"
         private const val KEY_GESTURE_TRIPLE_TAP = "gesture_triple_tap"
         private const val KEY_GESTURE_SWIPE_DOWN = "gesture_swipe_down"

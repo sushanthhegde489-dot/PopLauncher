@@ -91,6 +91,9 @@ fun FloatingAppBubbleContainer(
     iconDrawable: Drawable?,
     bubbleConfig: BubbleConfig,
     modifier: Modifier = Modifier,
+    searchObstaclePosition: Offset? = null,
+    searchObstacleRadius: Float = 0f,
+    searchObstacleVelocity: Offset = Offset.Zero,
     onDismiss: () -> Unit = {},
     onAppLaunch: (SearchEntity) -> Unit,
 ) {
@@ -136,6 +139,20 @@ fun FloatingAppBubbleContainer(
 
     LaunchedEffect(bubbleConfig) {
         physicsEngine.updateConfig(bubbleConfig)
+    }
+
+    LaunchedEffect(searchObstaclePosition, searchObstacleRadius, searchObstacleVelocity) {
+        if (searchObstaclePosition != null && searchObstacleRadius > 0f) {
+            physicsEngine.updateObstacle(
+                searchObstaclePosition.x,
+                searchObstaclePosition.y,
+                searchObstacleRadius,
+                searchObstacleVelocity.x,
+                searchObstacleVelocity.y
+            )
+        } else {
+            physicsEngine.clearObstacle()
+        }
     }
 
     var currentStage by remember { mutableStateOf(BubbleStage.FLOATING_BUBBLE) }
@@ -293,10 +310,16 @@ fun FloatingAppBubbleContainer(
                 val w = coords.size.width.toFloat()
                 val h = coords.size.height.toFloat()
 
-                val minX = 24f
-                val maxX = w - bubbleSizePx - 24f
-                val minY = with(density) { 90.dp.toPx() }
-                val maxY = h - bubbleSizePx - with(density) { 100.dp.toPx() }
+                val labelExtraWidthPx = with(density) { 36.dp.toPx() }
+                val labelExtraHeightPx = with(density) { 34.dp.toPx() }
+                val horizontalMarginPx = with(density) { 16.dp.toPx() }
+                val topMarginPx = with(density) { 80.dp.toPx() }
+                val bottomMarginPx = with(density) { 90.dp.toPx() }
+
+                val minX = horizontalMarginPx
+                val maxX = (w - bubbleSizePx - labelExtraWidthPx - horizontalMarginPx).coerceAtLeast(minX)
+                val minY = topMarginPx
+                val maxY = (h - bubbleSizePx - labelExtraHeightPx - bottomMarginPx).coerceAtLeast(minY)
 
                 screenBounds = floatArrayOf(minX, maxX, minY, maxY)
                 physicsEngine.updateBounds(minX, maxX, minY, maxY)

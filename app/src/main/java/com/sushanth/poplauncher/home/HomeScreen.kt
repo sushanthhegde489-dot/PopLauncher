@@ -1,8 +1,11 @@
 package com.sushanth.poplauncher.home
 
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.LauncherApps
+import android.provider.AlarmClock
 import android.provider.Settings
 import android.util.Log
 import android.view.ViewConfiguration
@@ -18,8 +21,10 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -44,6 +49,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -59,11 +65,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
@@ -73,6 +83,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.sushanth.poplauncher.MainActivity
 import com.sushanth.poplauncher.bubble.FloatingAppBubbleContainer
 import com.sushanth.poplauncher.bubble.MultiAppBubbleContainer
+import com.sushanth.poplauncher.data.model.AiLaunchMode
 import com.sushanth.poplauncher.data.model.AppEntity
 import com.sushanth.poplauncher.data.model.AppGroup
 import com.sushanth.poplauncher.data.model.AppGroupEntity
@@ -164,7 +175,7 @@ fun HomeScreen(
         }
     }
 
-    BackHandler(enabled = isSearchOpen || isContextMenuOpen || searchState.activeBubbleApp != null || isHiddenAppsBubblesOpen || activeGroupBubbles != null) {
+    BackHandler(enabled = isSearchOpen || isContextMenuOpen || searchState.activeBubbleApp != null || isHiddenAppsBubblesOpen || activeGroupBubbles != null || pagerState.currentPage != 0) {
         if (searchState.activeBubbleApp != null) {
             searchQuery = ""
             searchRepository.clearSearch()
@@ -178,8 +189,16 @@ fun HomeScreen(
             isSearchOpen = false
             searchQuery = ""
             searchRepository.clearSearch()
+        } else if (pagerState.currentPage != 0) {
+            scope.launch {
+                pagerState.animateScrollToPage(0)
+            }
         }
     }
+
+    var searchObstaclePos by remember { mutableStateOf<Offset?>(null) }
+    var searchObstacleRadius by remember { mutableFloatStateOf(0f) }
+    var searchObstacleVel by remember { mutableStateOf(Offset.Zero) }
 
     val timePattern = if (settings.clock24Hour) "HH:mm" else "hh:mm a"
     val timeFormatter = remember(settings.clock24Hour) {
@@ -196,17 +215,48 @@ fun HomeScreen(
         mutableStateOf(LocalDateTime.now(ZoneId.systemDefault()).format(dateFormatter))
     }
 
+    fun refreshClock() {
+        val now = LocalDateTime.now(ZoneId.systemDefault())
+        val formattedTime = now.format(timeFormatter)
+        val formattedDate = now.format(dateFormatter)
+        if (currentTime != formattedTime) currentTime = formattedTime
+        if (currentDate != formattedDate) currentDate = formattedDate
+    }
+
+    LaunchedEffect(timeFormatter, dateFormatter) {
+        refreshClock()
+    }
+
     // Only tick clock when app is resumed and clock or date is visible on page 0
     val shouldTickClock = isAppResumed && (settings.showClock || settings.showDate)
-    LaunchedEffect(shouldTickClock, timeFormatter, dateFormatter) {
+
+    DisposableEffect(context, shouldTickClock) {
+        if (!shouldTickClock) return@DisposableEffect onDispose {}
+        refreshClock()
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_TIME_TICK)
+            addAction(Intent.ACTION_TIME_CHANGED)
+            addAction(Intent.ACTION_TIMEZONE_CHANGED)
+        }
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(c: Context?, intent: Intent?) {
+                refreshClock()
+            }
+        }
+        context.registerReceiver(receiver, filter)
+        onDispose {
+            context.unregisterReceiver(receiver)
+        }
+    }
+
+    LaunchedEffect(shouldTickClock) {
         if (!shouldTickClock) return@LaunchedEffect
+        refreshClock()
         while (true) {
-            val now = LocalDateTime.now(ZoneId.systemDefault())
-            currentTime = now.format(timeFormatter)
-            currentDate = now.format(dateFormatter)
-            // Align to the next minute boundary instead of ticking every second
-            val millisUntilNextMinute = (60_000L - (System.currentTimeMillis() % 60_000L)).coerceAtLeast(1000L)
-            delay(millisUntilNextMinute)
+            val nowMs = System.currentTimeMillis()
+            val millisUntilNextMinute = (60_000L - (nowMs % 60_000L)).coerceAtLeast(500L)
+            delay(minOf(1000L, millisUntilNextMinute))
+            refreshClock()
         }
     }
 
@@ -438,7 +488,7 @@ fun HomeScreen(
                                     }
                                 }
                             }
-                            .statusBarsPadding()
+                            .then(if (!settings.hideStatusBarOnHomeScreen) Modifier.statusBarsPadding() else Modifier)
                             .navigationBarsPadding()
                             .padding(horizontal = 24.dp)
                     ) {
@@ -453,7 +503,7 @@ fun HomeScreen(
                                         .clip(RoundedCornerShape(16.dp))
                                         .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f))
                                         .clickable {
-                                            requestSetDefaultLauncher(context)
+                                            mainActivity?.requestSetDefaultLauncher() ?: requestSetDefaultLauncher(context)
                                         }
                                         .padding(16.dp)
                                  ) {
@@ -508,7 +558,16 @@ fun HomeScreen(
                                     color = MaterialTheme.colorScheme.onBackground,
                                     fontSize = 68.sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    letterSpacing = (-2).sp
+                                    letterSpacing = (-2).sp,
+                                    modifier = Modifier.clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        val clockIntent = Intent(AlarmClock.ACTION_SHOW_ALARMS).apply {
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        }
+                                        runCatching { context.startActivity(clockIntent) }
+                                    }
                                 )
                             }
                             if (settings.showDate) {
@@ -520,7 +579,17 @@ fun HomeScreen(
                                     color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.9f),
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Normal,
-                                    letterSpacing = 0.2.sp
+                                    letterSpacing = 0.2.sp,
+                                    modifier = Modifier.clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        val calIntent = Intent(Intent.ACTION_MAIN).apply {
+                                            addCategory(Intent.CATEGORY_APP_CALENDAR)
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        }
+                                        runCatching { context.startActivity(calIntent) }
+                                    }
                                 )
                             }
 
@@ -531,10 +600,7 @@ fun HomeScreen(
                             val shouldAnimateSearchButton = settings.searchAnimationEnabled &&
                                 isAppResumed &&
                                 !isSearchOpen &&
-                                pagerState.currentPage == 0 &&
-                                searchState.activeBubbleApp == null &&
-                                !isHiddenAppsBubblesOpen &&
-                                activeGroupBubbles == null
+                                pagerState.currentPage == 0
 
                             FloatingSearchButton(
                                 animate = shouldAnimateSearchButton,
@@ -543,6 +609,15 @@ fun HomeScreen(
                                     tapCount = 0
                                     lastTapTime = 0L
                                     isSearchOpen = true
+                                },
+                                onLongClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    launchAiAssistant(context, settings)
+                                },
+                                onPositionUpdate = { pos, radius, vel ->
+                                    searchObstaclePos = pos
+                                    searchObstacleRadius = radius
+                                    searchObstacleVel = vel
                                 }
                             )
 
@@ -689,7 +764,8 @@ fun HomeScreen(
                     searchRepository.clearSearch()
                 }
             },
-            getAppIcon = { pkg, userHandle -> appRepository.getAppIcon(pkg, settings.themePalette.isMonochrome, userHandle) }
+            getAppIcon = { pkg, userHandle -> appRepository.getAppIcon(pkg, settings.themePalette.isMonochrome, userHandle) },
+            animationLevel = settings.animationLevel
         )
 
         // =============================================================
@@ -714,6 +790,9 @@ fun HomeScreen(
                 iconDrawable = icon,
                 bubbleConfig = bubbleConfig,
                 modifier = Modifier.fillMaxSize(),
+                searchObstaclePosition = searchObstaclePos,
+                searchObstacleRadius = searchObstacleRadius,
+                searchObstacleVelocity = searchObstacleVel,
                 onDismiss = {
                     searchQuery = ""
                     searchRepository.clearSearch()
@@ -744,6 +823,9 @@ fun HomeScreen(
                     bubbleConfig = bubbleConfig,
                     getAppIcon = { pkg, userHandle -> appRepository.getAppIcon(pkg, settings.themePalette.isMonochrome, userHandle) },
                     modifier = Modifier.fillMaxSize(),
+                    searchObstaclePosition = searchObstaclePos,
+                    searchObstacleRadius = searchObstacleRadius,
+                    searchObstacleVelocity = searchObstacleVel,
                     onDismiss = { isHiddenAppsBubblesOpen = false },
                     onAppLaunch = { launchedApp ->
                         isHiddenAppsBubblesOpen = false
@@ -775,6 +857,9 @@ fun HomeScreen(
                     bubbleConfig = bubbleConfig,
                     getAppIcon = { pkg, userHandle -> appRepository.getAppIcon(pkg, settings.themePalette.isMonochrome, userHandle) },
                     modifier = Modifier.fillMaxSize(),
+                    searchObstaclePosition = searchObstaclePos,
+                    searchObstacleRadius = searchObstacleRadius,
+                    searchObstacleVelocity = searchObstacleVel,
                     onDismiss = { activeGroupBubbles = null },
                     onAppLaunch = { launchedApp ->
                         activeGroupBubbles = null
@@ -802,33 +887,85 @@ fun HomeScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun FloatingSearchButton(
     animate: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
+    onPositionUpdate: ((position: Offset?, radius: Float, velocity: Offset) -> Unit)? = null
 ) {
-    val motionModifier = if (animate) {
+    val searchFloatX: Float
+    val searchFloatY: Float
+    val searchRotate: Float
+    val searchScale: Float
+
+    if (animate) {
         val infiniteTransition = rememberInfiniteTransition(label = "SearchIconMotion")
-        val searchFloatX by infiniteTransition.animateFloat(
+        val fx by infiniteTransition.animateFloat(
             initialValue = -45f, targetValue = 45f,
             animationSpec = infiniteRepeatable(tween(4400, easing = FastOutSlowInEasing), RepeatMode.Reverse),
             label = "SearchFloatX"
         )
-        val searchFloatY by infiniteTransition.animateFloat(
+        val fy by infiniteTransition.animateFloat(
             initialValue = -26f, targetValue = 26f,
             animationSpec = infiniteRepeatable(tween(3300, easing = FastOutSlowInEasing), RepeatMode.Reverse),
             label = "SearchFloatY"
         )
-        val searchRotate by infiniteTransition.animateFloat(
+        val rot by infiniteTransition.animateFloat(
             initialValue = -5f, targetValue = 5f,
             animationSpec = infiniteRepeatable(tween(5100, easing = FastOutSlowInEasing), RepeatMode.Reverse),
             label = "SearchRotate"
         )
-        val searchScale by infiniteTransition.animateFloat(
+        val sc by infiniteTransition.animateFloat(
             initialValue = 0.96f, targetValue = 1.04f,
             animationSpec = infiniteRepeatable(tween(3900, easing = FastOutSlowInEasing), RepeatMode.Reverse),
             label = "SearchScale"
         )
+        searchFloatX = fx
+        searchFloatY = fy
+        searchRotate = rot
+        searchScale = sc
+    } else {
+        searchFloatX = 0f
+        searchFloatY = 0f
+        searchRotate = 0f
+        searchScale = 1f
+    }
+
+    var baseCenter by remember { mutableStateOf<Offset?>(null) }
+    var radiusPx by remember { mutableFloatStateOf(0f) }
+    var lastObstaclePos by remember { mutableStateOf<Offset?>(null) }
+    var lastObstacleTime by remember { mutableLongStateOf(0L) }
+
+    LaunchedEffect(searchFloatX, searchFloatY, baseCenter, radiusPx, animate) {
+        val base = baseCenter
+        if (base != null && radiusPx > 0f) {
+            val currentPos = base + Offset(searchFloatX, searchFloatY)
+            val now = System.nanoTime()
+            val vel = if (lastObstacleTime > 0L && lastObstaclePos != null) {
+                val dt = (now - lastObstacleTime) / 1_000_000_000f
+                if (dt in 0.001f..0.2f) {
+                    (currentPos - lastObstaclePos!!) / dt
+                } else {
+                    Offset.Zero
+                }
+            } else {
+                Offset.Zero
+            }
+            lastObstaclePos = currentPos
+            lastObstacleTime = now
+            onPositionUpdate?.invoke(currentPos, radiusPx, vel)
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            onPositionUpdate?.invoke(null, 0f, Offset.Zero)
+        }
+    }
+
+    val motionModifier = if (animate) {
         Modifier.graphicsLayer {
             translationX = searchFloatX
             translationY = searchFloatY
@@ -842,16 +979,26 @@ private fun FloatingSearchButton(
 
     Box(
         contentAlignment = Alignment.Center,
-        modifier = motionModifier
+        modifier = Modifier
+            .onGloballyPositioned { coordinates ->
+                val rootPos = coordinates.positionInRoot()
+                val w = coordinates.size.width.toFloat()
+                val h = coordinates.size.height.toFloat()
+                baseCenter = Offset(rootPos.x + w / 2f, rootPos.y + h / 2f)
+                radiusPx = minOf(w, h) / 2f
+            }
+            .then(motionModifier)
             .size(68.dp)
             .shadow(16.dp, CircleShape, spotColor = MaterialTheme.colorScheme.primary)
             .clip(CircleShape)
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .border(1.5.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.55f), CircleShape)
-            .clickable(
+            .combinedClickable(
                 onClickLabel = "Open search",
+                onLongClickLabel = "Open AI assistant",
                 role = Role.Button,
-                onClick = onClick
+                onClick = onClick,
+                onLongClick = onLongClick
             )
     ) {
         Icon(
@@ -860,6 +1007,97 @@ private fun FloatingSearchButton(
             tint = MaterialTheme.colorScheme.secondary,
             modifier = Modifier.size(30.dp)
         )
+    }
+}
+
+fun launchAiAssistant(context: Context, settings: com.sushanth.poplauncher.data.model.LauncherSettings) {
+    val pm = context.packageManager
+    val targetPkg = settings.defaultAiAppPackage.trim()
+
+    if (settings.defaultAiMode == AiLaunchMode.VOICE_DICTATION) {
+        // Prioritize the system voice/assistant overlay ("Ok Google" dictation & text prompt)
+        if (targetPkg.isEmpty() || targetPkg == "com.google.android.apps.bard" || targetPkg == "com.google.android.googlequicksearchbox") {
+            val assistIntent = Intent(Intent.ACTION_ASSIST).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            if (assistIntent.resolveActivity(pm) != null) {
+                if (runCatching { context.startActivity(assistIntent) }.isSuccess) return
+            }
+
+            val voiceCommandIntent = Intent(Intent.ACTION_VOICE_COMMAND).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            if (voiceCommandIntent.resolveActivity(pm) != null) {
+                if (runCatching { context.startActivity(voiceCommandIntent) }.isSuccess) return
+            }
+        } else if (targetPkg == "com.openai.chatgpt") {
+            val chatGptVoice = Intent(Intent.ACTION_MAIN).apply {
+                setClassName("com.openai.chatgpt", "com.openai.voice.AssistantActivity")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            if (chatGptVoice.resolveActivity(pm) != null) {
+                if (runCatching { context.startActivity(chatGptVoice) }.isSuccess) return
+            }
+        } else {
+            val appVoiceIntent = Intent(Intent.ACTION_VOICE_COMMAND).apply {
+                setPackage(targetPkg)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            if (appVoiceIntent.resolveActivity(pm) != null) {
+                if (runCatching { context.startActivity(appVoiceIntent) }.isSuccess) return
+            }
+        }
+    }
+
+    // Launch standalone app if explicitly configured or found
+    val chosenPkg = targetPkg.ifBlank {
+        listOf(
+            "com.google.android.apps.bard", // Gemini
+            "com.openai.chatgpt",           // ChatGPT
+            "com.anthropic.claude",         // Claude
+            "ai.perplexity.app.android",    // Perplexity
+            "com.microsoft.copilot"         // Microsoft Copilot
+        ).firstOrNull { pkg ->
+            runCatching { pm.getPackageInfo(pkg, 0) }.isSuccess
+        } ?: ""
+    }
+
+    if (chosenPkg.isNotBlank() && runCatching { pm.getPackageInfo(chosenPkg, 0) }.isSuccess) {
+        val launchIntent = pm.getLaunchIntentForPackage(chosenPkg)?.apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        if (launchIntent != null) {
+            runCatching { context.startActivity(launchIntent) }
+            return
+        }
+    }
+
+    if (targetPkg.isNotBlank()) {
+        Toast.makeText(context, "Selected AI app is not installed", Toast.LENGTH_SHORT).show()
+        val playStoreIntent = Intent(Intent.ACTION_VIEW, "market://details?id=$targetPkg".toUri()).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        runCatching { context.startActivity(playStoreIntent) }
+        return
+    }
+
+    val systemAssistIntent = Intent(Intent.ACTION_ASSIST).apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    if (systemAssistIntent.resolveActivity(pm) != null) {
+        if (runCatching { context.startActivity(systemAssistIntent) }.isSuccess) return
+    }
+
+    val voiceIntent = Intent(Intent.ACTION_VOICE_COMMAND).apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    if (voiceIntent.resolveActivity(pm) != null) {
+        runCatching { context.startActivity(voiceIntent) }
+    } else {
+        val webSearchIntent = Intent(Intent.ACTION_WEB_SEARCH).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        runCatching { context.startActivity(webSearchIntent) }
     }
 }
 

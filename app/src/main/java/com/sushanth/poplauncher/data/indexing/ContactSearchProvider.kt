@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.ContactsContract
 import android.provider.Telephony
@@ -69,13 +70,22 @@ class ContactSearchProvider(
             val sortOrder = "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} ASC"
 
             try {
-                val queryArgs = Bundle().apply {
-                    putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
-                    putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, selectionArgs)
-                    putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, sortOrder)
-                    putInt(ContentResolver.QUERY_ARG_LIMIT, 20)
+                val cursor = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    try {
+                        val queryArgs = Bundle().apply {
+                            putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
+                            putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, selectionArgs)
+                            putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, sortOrder)
+                            putInt(ContentResolver.QUERY_ARG_LIMIT, 20)
+                        }
+                        context.contentResolver.query(uri, projection, queryArgs, null)
+                    } catch (_: Exception) {
+                        context.contentResolver.query(uri, projection, selection, selectionArgs, sortOrder)
+                    }
+                } else {
+                    context.contentResolver.query(uri, projection, selection, selectionArgs, sortOrder)
                 }
-                context.contentResolver.query(uri, projection, queryArgs, null)?.use { cursor ->
+                cursor?.use { cursor ->
                     val idIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.CONTACT_ID)
                     val nameIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
                     val numIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)

@@ -313,9 +313,9 @@ class SearchRepository(
                     .thenByDescending { entity -> affinityScores[entity.id] ?: 0 }
             )
 
-        // 4. Web Overview Fallback + Deep App Search when ZERO local results found and GOOGLE_OVERVIEW is enabled
+        // 4. Web Overview Fallback + Deep App Search when GOOGLE_OVERVIEW is enabled
         val shouldShowWebOverview = SearchType.GOOGLE_OVERVIEW in settings.enabledProviders &&
-                combinedStandardResults.isEmpty() && frictionExactMatch == null && query.isNotEmpty()
+                frictionExactMatch == null && query.trim().isNotEmpty()
         val webOverview = if (shouldShowWebOverview) {
             val searchUrl = "https://www.google.com/search?q=${Uri.encode(query)}"
             val browserIntent = Intent(Intent.ACTION_VIEW, searchUrl.toUri()).apply {
@@ -369,6 +369,9 @@ class SearchRepository(
                     query = query,
                     geminiApiKey = settings.geminiApiKey
                 )
+                if (!summary.isNullOrBlank()) {
+                    settingsRepository.addAiOverviewHistory(query, summary)
+                }
                 val latestState = _searchState.value
                 if (generation == searchGeneration.get() && latestState.query == query && latestState.webOverview != null) {
                     val updatedOverview = latestState.webOverview.copy(

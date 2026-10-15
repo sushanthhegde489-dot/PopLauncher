@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.pm.LauncherApps
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Process
 import android.provider.ContactsContract
@@ -131,13 +132,23 @@ class ConversationSearchProvider(
                 val selectionArgs = arrayOf("%$queryLower%", "%$queryLower%")
 
                 val uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI
-                val args = Bundle().apply {
-                    putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
-                    putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, selectionArgs)
-                    putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} ASC")
-                    putInt(ContentResolver.QUERY_ARG_LIMIT, 6)
+                val sortOrder = "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} ASC"
+                val cursor = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    try {
+                        val args = Bundle().apply {
+                            putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
+                            putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, selectionArgs)
+                            putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, sortOrder)
+                            putInt(ContentResolver.QUERY_ARG_LIMIT, 6)
+                        }
+                        context.contentResolver.query(uri, projection, args, null)
+                    } catch (_: Exception) {
+                        context.contentResolver.query(uri, projection, selection, selectionArgs, sortOrder)
+                    }
+                } else {
+                    context.contentResolver.query(uri, projection, selection, selectionArgs, sortOrder)
                 }
-                context.contentResolver.query(uri, projection, args, null)?.use { cursor ->
+                cursor?.use { cursor ->
                     val nameCol = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
                     val numCol = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
 

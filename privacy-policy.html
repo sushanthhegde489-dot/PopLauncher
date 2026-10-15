@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy - Pop Launcher</title>
+    <style>
+        :root {
+            --primary: #8F425F;
+            --background: #FAFAFA;
+            --surface: #FFFFFF;
+            --text-primary: #1C1B1F;
+            --text-secondary: #49454F;
+            --outline: #CAC4D0;
+        }
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --primary: #FFB1C8;
+                --background: #141218;
+                --surface: #1D1B20;
+                --text-primary: #E6E1E5;
+                --text-secondary: #CAC4D0;
+                --outline: #49454F;
+            }
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--background);
+            color: var(--text-primary);
+            margin: 0;
+            padding: 24px;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: var(--surface);
+            padding: 36px;
+            border-radius: 24px;
+            border: 1px solid var(--outline);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        }
+        h1 {
+            color: var(--primary);
+            margin-top: 0;
+            font-size: 2rem;
+        }
+        h2 {
+            color: var(--primary);
+            margin-top: 2rem;
+            font-size: 1.3rem;
+            border-bottom: 1px solid var(--outline);
+            padding-bottom: 8px;
+        }
+        p, li {
+            color: var(--text-secondary);
+            font-size: 1rem;
+        }
+        ul {
+            padding-left: 20px;
+        }
+        .highlight-box {
+            background: rgba(143, 66, 95, 0.08);
+            border-left: 4px solid var(--primary);
+            padding: 16px;
+            margin: 16px 0;
+            border-radius: 0 12px 12px 0;
+        }
+        .footer {
+            margin-top: 40px;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Privacy Policy for Pop Launcher</h1>
+        <p><strong>Effective Date:</strong> October 14, 2026</p>
+        <p><strong>Last Updated:</strong> October 14, 2026</p>
+
+        <div class="highlight-box">
+            <strong>Key Privacy Commitment:</strong> Pop Launcher is designed as a privacy-first, on-device Android home screen launcher. We do not operate user accounts, do not include advertising SDKs, do not use analytics trackers, and never sell, monetize, or harvest your personal information.
+        </div>
+
+        <h2>1. Overview</h2>
+        <p>Pop Launcher ("we", "our", or "the app") is an Android application that provides a home screen replacement, application launcher, universal on-device search, and customizable widget host. This policy explains what information is processed when you use Pop Launcher and how we safeguard your privacy.</p>
+
+        <h2>2. Data Processed Locally on Your Device</h2>
+        <p>Pop Launcher processes all essential launcher functions locally on your device without transmitting data to any remote Pop Launcher servers:</p>
+        <ul>
+            <li><strong>Installed Applications:</strong> The launcher queries your device's installed packages (<code>QUERY_ALL_PACKAGES</code>) solely to display app icons on your home screen, group applications, manage hidden apps, and provide local app search. This metadata is stored in transient memory and is never transmitted off your device.</li>
+            <li><strong>Contacts &amp; People Search (Optional):</strong> If you choose to enable People Search and grant <code>READ_CONTACTS</code> permission, contact names and phone numbers are queried on-device via the Android ContactsProvider to allow quick dialing and contact search. Your contact data is strictly processed on your device and is never uploaded, shared, or transmitted.</li>
+            <li><strong>Photos, Videos, and Files (Optional):</strong> If you enable Media or File Search, the app searches local files via Android's MediaStore. File names, file paths, and local media thumbnails are kept strictly on your device.</li>
+            <li><strong>Conversation Shortcuts:</strong> The app queries shortcuts registered by your messaging apps (such as WhatsApp, Telegram, or Signal) via Android's <code>LauncherApps</code> framework to let you quickly jump to conversations from search.</li>
+            <li><strong>Widget &amp; Home Screen Configuration:</strong> Widget placements, grid configurations, bubble physics preferences, friction app choices, and theme selections are stored in your device's private app storage (Android SharedPreferences and Jetpack DataStore).</li>
+        </ul>
+
+        <h2>3. Web &amp; AI Overview Services (Optional)</h2>
+        <p>Pop Launcher includes an optional Web &amp; AI Overview search feature:</p>
+        <ul>
+            <li><strong>DuckDuckGo &amp; Wikipedia:</strong> When enabled, search queries that cannot be resolved locally may be sent over secure HTTPS to Wikipedia or DuckDuckGo to retrieve relevant encyclopedic summaries. No personal identifiers, IP logs, or device hardware IDs are transmitted with these queries.</li>
+            <li><strong>Google Gemini API:</strong> If you optionally provide your own personal Google Gemini API key in Settings, queries are sent directly to Google's Gemini API endpoint over HTTPS using your personal key. Pop Launcher does not intermediate or log these API calls.</li>
+            <li><strong>AI Search History:</strong> Your last 10 AI search summaries are stored solely in your local on-device application storage for your convenience. You can clear this history at any time with one tap from Settings.</li>
+        </ul>
+
+        <h2>4. Custom Widget Catalog</h2>
+        <p>Pop Launcher allows users to browse an optional curated catalog of declarative custom widgets hosted on GitHub Pages over secure HTTPS. The catalog contains only structured JSON definitions (shapes, text layouts, and color themes). Pop Launcher never downloads, installs, or executes binary code (such as DEX, APK, or native libraries) from external sources, in full compliance with Google Play's Device and Network Abuse policies.</p>
+
+        <h2>5. Advertising, Analytics &amp; Third-Party SDKs</h2>
+        <p>Pop Launcher contains:</p>
+        <ul>
+            <li><strong>No Advertising SDKs:</strong> We do not display ads, and we do not bundle ad networks (such as AdMob or Unity Ads).</li>
+            <li><strong>No Analytics SDKs:</strong> We do not use third-party analytics or crash-reporting services (such as Google Firebase Analytics, Crashlytics, or Mixpanel).</li>
+            <li><strong>No Data Monetization:</strong> We do not sell, rent, or trade user data under any circumstances.</li>
+        </ul>
+
+        <h2>6. Device Permissions and User Control</h2>
+        <p>Pop Launcher adheres to the principle of least privilege. Permissions are requested only when required for user-initiated features:</p>
+        <ul>
+            <li><code>QUERY_ALL_PACKAGES</code>: Permitted by Google Play for Home screen launcher replacement apps.</li>
+            <li><code>READ_CONTACTS</code>: Requested only if you opt-in to People Search after viewing a prominent disclosure dialog.</li>
+            <li><code>READ_MEDIA_IMAGES</code>, <code>READ_MEDIA_VIDEO</code>, <code>READ_MEDIA_AUDIO</code>: Requested only if you opt-in to Photos &amp; Media search on Android 13+.</li>
+            <li><code>READ_EXTERNAL_STORAGE</code>: Used only on Android 12 and below (capped at <code>maxSdkVersion="32"</code>) if you choose to search local files.</li>
+            <li><code>BIND_APPWIDGET</code>: Used according to the Android AppWidget host framework to allow placing interactive widgets on your home screen.</li>
+            <li><code>VIBRATE</code> &amp; <code>SET_WALLPAPER</code>: Used for tactile bubble pop haptics and setting your device wallpaper.</li>
+        </ul>
+        <p>You can revoke any runtime permission at any time through your device's <em>Settings &gt; Apps &gt; Pop Launcher &gt; Permissions</em> menu.</p>
+
+        <h2>7. Data Retention and Deletion</h2>
+        <p>Because we do not maintain accounts or remote databases, all your preferences, search history, and widget states reside exclusively on your physical device. You can permanently delete all data at any time by:</p>
+        <ul>
+            <li>Using the "Clear History" button in Settings &gt; AI Overview History.</li>
+            <li>Clearing the app's storage via <em>Settings &gt; Apps &gt; Pop Launcher &gt; Storage &gt; Clear Storage / Clear Data</em>.</li>
+            <li>Uninstalling Pop Launcher from your device.</li>
+        </ul>
+
+        <h2>8. Children's Privacy</h2>
+        <p>Pop Launcher does not knowingly collect or solicit personal information from children under the age of 13 (or under the applicable age of consent in your jurisdiction). The app is a general utility launcher that processes data locally without account creation.</p>
+
+        <h2>9. Policy Updates</h2>
+        <p>We may update this Privacy Policy periodically to reflect app improvements or regulatory updates. Any changes will be posted to this page with an updated "Last Updated" date.</p>
+
+        <h2>10. Contact Us</h2>
+        <p>If you have any questions or feedback regarding this Privacy Policy or Pop Launcher's privacy practices, please contact us via our GitHub repository or developer contact email.</p>
+
+        <div class="footer">
+            &copy; 2026 Pop Launcher. All rights reserved.
+        </div>
+    </div>
+</body>
+</html>

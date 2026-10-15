@@ -24,10 +24,13 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.Crossfade
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,6 +39,9 @@ import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toDrawable
 import androidx.core.net.toUri
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import com.sushanth.poplauncher.data.model.AppEntity
 import com.sushanth.poplauncher.data.model.ConversationEntity
@@ -383,9 +389,6 @@ class MainActivity : ComponentActivity() {
             if (apps.isNotEmpty()) {
                 settingsRepository.cleanupUninstalled(apps.mapTo(HashSet()) { it.packageName })
             }
-            if (settingsRepository.settings.value.hasCompletedOnboarding) {
-                requestSearchPermissions()
-            }
         }
 
         handlePinItemRequest(intent)
@@ -708,6 +711,21 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun LauncherApp() {
         var screenState by currentScreen
+        val settings by settingsRepository.settings.collectAsState()
+        val settingsScrollState = rememberScrollState()
+
+        DisposableEffect(screenState, settings.hideStatusBarOnHomeScreen) {
+            val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+            if (screenState == LauncherScreen.HOME && settings.hideStatusBarOnHomeScreen) {
+                insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                insetsController.hide(WindowInsetsCompat.Type.statusBars())
+            } else {
+                insetsController.show(WindowInsetsCompat.Type.statusBars())
+            }
+            onDispose {
+                insetsController.show(WindowInsetsCompat.Type.statusBars())
+            }
+        }
 
         BackHandler(enabled = screenState != LauncherScreen.HOME) {
             when (screenState) {
@@ -745,7 +763,8 @@ class MainActivity : ComponentActivity() {
                         onOpenFrictionApps = { screenState = LauncherScreen.FRICTION_APPS },
                         onOpenConversationApps = { screenState = LauncherScreen.CONVERSATION_APPS },
                         onOpenHiddenApps = { screenState = LauncherScreen.HIDDEN_APPS_SETUP },
-                        onOpenAppGroups = { screenState = LauncherScreen.APP_GROUPS }
+                        onOpenAppGroups = { screenState = LauncherScreen.APP_GROUPS },
+                        scrollState = settingsScrollState
                     )
                 }
                 LauncherScreen.FRICTION_APPS -> {

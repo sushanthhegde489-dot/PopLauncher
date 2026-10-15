@@ -30,10 +30,16 @@ object WebOverviewProvider {
             }
         }
 
-        // 2. Default: Privacy-preserving DuckDuckGo Instant Answer API (structured JSON, no tracking)
+        // 2. DuckDuckGo Instant Answer API (for quick facts / single entity lookups)
         val ddgResult = withContext(Dispatchers.IO) { fetchFromDuckDuckGo(trimmed) }
         if (!ddgResult.isNullOrBlank()) {
             return@coroutineScope cleanText(ddgResult)
+        }
+
+        // 3. Wikipedia Search Extract API (handles complex, multi-word questions, definitions, topics)
+        val wikiResult = withContext(Dispatchers.IO) { fetchFromWikipedia(trimmed) }
+        if (!wikiResult.isNullOrBlank()) {
+            return@coroutineScope cleanText(wikiResult)
         }
 
         null
@@ -129,6 +135,44 @@ object WebOverviewProvider {
         }
     }
 
+    private fun fetchFromWikipedia(query: String): String? {
+        var conn: HttpURLConnection? = null
+        return try {
+            val encoded = URLEncoder.encode(query, "UTF-8")
+            // Query Wikipedia search API which matches multi-word questions and topics
+            val url = URI("https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=$encoded&gsrlimit=1&prop=extracts&exintro=1&explaintext=1&exsentences=4&format=json").toURL()
+            conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 4000
+                readTimeout = 4000
+                setRequestProperty("User-Agent", "PopLauncher/1.0 (Android; Launcher Overview)")
+                setRequestProperty("Accept", "application/json")
+            }
+
+            if (conn.responseCode == 200) {
+                val response = conn.inputStream.bufferedReader().use { it.readTextLimited(MAX_RESPONSE_CHARS) }
+                val root = JSONObject(response)
+                val pages = root.optJSONObject("query")?.optJSONObject("pages")
+                if (pages != null) {
+                    val keys = pages.keys()
+                    while (keys.hasNext()) {
+                        val key = keys.next()
+                        val page = pages.optJSONObject(key)
+                        val extract = page?.optString("extract", "") ?: ""
+                        if (extract.isNotBlank()) {
+                            return extract
+                        }
+                    }
+                }
+            }
+            null
+        } catch (_: Exception) {
+            null
+        } finally {
+            conn?.disconnect()
+        }
+    }
+
     private fun BufferedReader.readTextLimited(maxChars: Int): String {
         val buffer = CharArray(4096)
         val out = StringBuilder()
@@ -171,12 +215,12 @@ object WebOverviewProvider {
         val sb = StringBuilder()
         for (s in sentences) {
             val neededLen = if (sb.isEmpty()) s.length else sb.length + 1 + s.length
-            if (neededLen <= 320) {
+            if (neededLen <= 480) {
                 if (sb.isNotEmpty()) sb.append(' ')
                 sb.append(s)
             } else {
                 if (sb.isEmpty()) {
-                    val cut = s.take(300)
+                    val cut = s.take(450)
                     val lastSpace = cut.lastIndexOf(' ')
                     if (lastSpace > 50) {
                         sb.append(cut, 0, lastSpace).append("...")

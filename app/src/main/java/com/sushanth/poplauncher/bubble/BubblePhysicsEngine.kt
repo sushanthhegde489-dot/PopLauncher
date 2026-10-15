@@ -33,6 +33,33 @@ class BubblePhysicsEngine(
     private var isUserInteracting: Boolean = false
     private var idleElapsedSeconds: Float = 0f
 
+    var obstacleX: Float = 0f
+        private set
+    var obstacleY: Float = 0f
+        private set
+    var obstacleRadius: Float = 0f
+        private set
+    var obstacleVx: Float = 0f
+        private set
+    var obstacleVy: Float = 0f
+        private set
+    var hasObstacle: Boolean = false
+        private set
+
+    fun updateObstacle(centerX: Float, centerY: Float, radius: Float, vx: Float = 0f, vy: Float = 0f) {
+        this.obstacleX = centerX
+        this.obstacleY = centerY
+        this.obstacleRadius = radius
+        this.obstacleVx = vx
+        this.obstacleVy = vy
+        this.hasObstacle = radius > 0f
+    }
+
+    fun clearObstacle() {
+        this.hasObstacle = false
+        this.obstacleRadius = 0f
+    }
+
     // Base speed in dp/sec scaled by BubbleSpeed multiplier
     private val speedMultiplier: Float
         get() = 170f * config.speed.speedMultiplier
@@ -87,8 +114,28 @@ class BubblePhysicsEngine(
     }
 
     fun updateDragPosition(newX: Float, newY: Float) {
-        posX = newX.coerceIn(minBoundX, maxBoundX)
-        posY = newY.coerceIn(minBoundY, maxBoundY)
+        var targetX = newX.coerceIn(minBoundX, maxBoundX)
+        var targetY = newY.coerceIn(minBoundY, maxBoundY)
+
+        if (hasObstacle && obstacleRadius > 0f) {
+            val centerBx = targetX + 100f // approx bubble radius ~100f
+            val centerBy = targetY + 100f
+            val dx = centerBx - obstacleX
+            val dy = centerBy - obstacleY
+            val distSq = dx * dx + dy * dy
+            val hitDist = 100f + obstacleRadius
+            if (distSq < hitDist * hitDist) {
+                val dist = sqrt(distSq).coerceAtLeast(0.001f)
+                val nx = dx / dist
+                val ny = dy / dist
+                val overlap = hitDist - dist
+                targetX += nx * overlap
+                targetY += ny * overlap
+            }
+        }
+
+        posX = targetX.coerceIn(minBoundX, maxBoundX)
+        posY = targetY.coerceIn(minBoundY, maxBoundY)
     }
 
     fun releaseDrag(flingVx: Float, flingVy: Float) {
@@ -163,6 +210,41 @@ class BubblePhysicsEngine(
         // Update position
         posX += velX * dt
         posY += velY * dt
+
+        // Collision with kinematic obstacle (search icon)
+        if (hasObstacle && obstacleRadius > 0f) {
+            val centerBx = posX + 100f
+            val centerBy = posY + 100f
+            val dx = centerBx - obstacleX
+            val dy = centerBy - obstacleY
+            val distSq = dx * dx + dy * dy
+            val hitDist = 100f + obstacleRadius
+            if (distSq < hitDist * hitDist) {
+                val dist = sqrt(distSq).coerceAtLeast(0.001f)
+                val nx = dx / dist
+                val ny = dy / dist
+                val overlap = hitDist - dist
+
+                posX += nx * overlap
+                posY += ny * overlap
+
+                val relVx = velX - obstacleVx
+                val relVy = velY - obstacleVy
+                val vDot = relVx * nx + relVy * ny
+
+                if (vDot < 0f) {
+                    val bounce = (config.edgeBounce * 1.05f).coerceIn(0.75f, 1.15f)
+                    velX -= (1f + bounce) * vDot * nx
+                    velY -= (1f + bounce) * vDot * ny
+                }
+
+                val obstacleSpeed = sqrt(obstacleVx * obstacleVx + obstacleVy * obstacleVy)
+                if (obstacleSpeed > 5f) {
+                    velX += obstacleVx * 0.4f
+                    velY += obstacleVy * 0.4f
+                }
+            }
+        }
 
         // Collision detection with bounds & restitution bouncing
         val bounce = config.edgeBounce

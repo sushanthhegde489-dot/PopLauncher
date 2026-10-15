@@ -68,13 +68,22 @@ class FileSearchProvider : SearchProvider {
             val sortOrder = "${MediaStore.Files.FileColumns.DATE_MODIFIED} DESC"
 
             try {
-                val queryArgs = Bundle().apply {
-                    putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
-                    putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, selectionArgs)
-                    putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, sortOrder)
-                    putInt(ContentResolver.QUERY_ARG_LIMIT, 25)
+                val cursor = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    try {
+                        val queryArgs = Bundle().apply {
+                            putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
+                            putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, selectionArgs)
+                            putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, sortOrder)
+                            putInt(ContentResolver.QUERY_ARG_LIMIT, 25)
+                        }
+                        context.contentResolver.query(uri, projection, queryArgs, null)
+                    } catch (_: Exception) {
+                        context.contentResolver.query(uri, projection, selection, selectionArgs, sortOrder)
+                    }
+                } else {
+                    context.contentResolver.query(uri, projection, selection, selectionArgs, sortOrder)
                 }
-                context.contentResolver.query(uri, projection, queryArgs, null)?.use { cursor ->
+                cursor?.use { cursor ->
                     val idIdx = cursor.getColumnIndex(MediaStore.Files.FileColumns._ID)
                     val nameIdx = cursor.getColumnIndex(MediaStore.Files.FileColumns.DISPLAY_NAME)
                     val titleIdx = cursor.getColumnIndex(MediaStore.Files.FileColumns.TITLE)

@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -90,6 +91,9 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.sushanth.poplauncher.MainActivity
 import com.sushanth.poplauncher.MediaAccessState
 import com.sushanth.poplauncher.R
+import com.sushanth.poplauncher.data.model.AiLaunchMode
+import com.sushanth.poplauncher.data.model.AiOverviewHistoryItem
+import com.sushanth.poplauncher.data.model.AnimationLevel
 import com.sushanth.poplauncher.data.model.AppGroup
 import com.sushanth.poplauncher.data.model.BubbleBehavior
 import com.sushanth.poplauncher.data.model.BubbleSpeed
@@ -106,6 +110,9 @@ import com.sushanth.poplauncher.ui.theme.ThemePalette
 import com.sushanth.poplauncher.ui.theme.colorToHex
 import com.sushanth.poplauncher.ui.theme.parseHexColor
 import com.sushanth.poplauncher.util.drawableToBitmap
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlin.math.abs
 
 @Composable
@@ -117,6 +124,7 @@ fun SettingsScreen(
     onOpenConversationApps: () -> Unit = {},
     onOpenHiddenApps: () -> Unit = {},
     onOpenAppGroups: () -> Unit = {},
+    scrollState: ScrollState = rememberScrollState(),
 ) {
     val context = LocalContext.current
     val settings by settingsRepository.settings.collectAsState()
@@ -133,6 +141,9 @@ fun SettingsScreen(
     var showContactDisclosure by remember { mutableStateOf(false) }
     var showAiDisclosure by remember { mutableStateOf(false) }
     var showGeminiKeyDialog by remember { mutableStateOf(false) }
+    var showAiHistoryDialog by remember { mutableStateOf(false) }
+    var showAiAssistantPicker by remember { mutableStateOf(false) }
+    var choosingAppForAiAssistant by remember { mutableStateOf(false) }
     var configuringGesture by remember { mutableStateOf<GestureType?>(null) }
     var choosingAppForGesture by remember { mutableStateOf<GestureType?>(null) }
     var choosingGroupForGesture by remember { mutableStateOf<GestureType?>(null) }
@@ -337,6 +348,292 @@ fun SettingsScreen(
         )
     }
 
+    if (showAiHistoryDialog) {
+        AlertDialog(
+            onDismissRequest = { showAiHistoryDialog = false },
+            title = {
+                Text(
+                    text = "AI Overview History",
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleLarge
+                )
+            },
+            text = {
+                if (settings.aiOverviewHistory.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "No search history recorded yet.\nRun searches with AI Overview enabled to see summaries here.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                } else {
+                    val dateFormat = remember { SimpleDateFormat("MMM d, HH:mm", Locale.getDefault()) }
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(
+                            text = "Last ${settings.aiOverviewHistory.size} overview searches:",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        settings.aiOverviewHistory.forEach { item ->
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = item.query,
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Text(
+                                            text = dateFormat.format(Date(item.timestamp)),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.outline
+                                        )
+                                    }
+                                    Text(
+                                        text = item.summary,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { showAiHistoryDialog = false }
+                ) {
+                    Text("Close")
+                }
+            },
+            dismissButton = {
+                if (settings.aiOverviewHistory.isNotEmpty()) {
+                    TextButton(
+                        onClick = {
+                            settingsRepository.clearAiOverviewHistory()
+                        }
+                    ) {
+                        Text("Clear History", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+        )
+    }
+
+    if (showAiAssistantPicker) {
+        val aiOptions = listOf(
+            Triple("", "System Default Voice Assistant", "Standard voice interaction / assistant"),
+            Triple("com.google.android.apps.bard", "Google Gemini", "Gemini AI assistant & voice overlay"),
+            Triple("com.openai.chatgpt", "ChatGPT", "OpenAI ChatGPT Voice & Chat"),
+            Triple("com.anthropic.claude", "Claude", "Anthropic Claude"),
+            Triple("ai.perplexity.app.android", "Perplexity", "Perplexity AI search & voice"),
+            Triple("com.microsoft.copilot", "Microsoft Copilot", "Microsoft Copilot AI assistant")
+        )
+        AlertDialog(
+            onDismissRequest = { showAiAssistantPicker = false },
+            title = {
+                Text(
+                    text = "Long-Press Search Assistant",
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleLarge
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Text(
+                        text = "Choose which AI assistant opens when you long press the search icon on the home screen.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Text(
+                        text = "Target AI Application",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    aiOptions.forEach { (pkg, name, desc) ->
+                        val isSelected = settings.defaultAiAppPackage == pkg
+                        val isInstalled = pkg.isEmpty() || apps.any { it.matchesIdentifier(pkg) }
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable {
+                                    settingsRepository.setDefaultAiAppPackage(pkg)
+                                },
+                            color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = name,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = if (isInstalled) desc else "$desc (Not installed)",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                if (isSelected) {
+                                    Text("✓", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                        }
+                    }
+
+                    val isCustom = settings.defaultAiAppPackage.isNotEmpty() && aiOptions.none { it.first == settings.defaultAiAppPackage }
+                    val customAppLabel = if (isCustom) {
+                        apps.firstOrNull { it.matchesIdentifier(settings.defaultAiAppPackage) }?.label ?: settings.defaultAiAppPackage
+                    } else null
+
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable {
+                                choosingAppForAiAssistant = true
+                            },
+                        color = if (isCustom) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = customAppLabel ?: "Choose another installed app...",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = if (isCustom) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isCustom) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Select any installed app to launch on long-press",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (isCustom) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            if (isCustom) {
+                                Text("✓", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+                    Text(
+                        text = "Preferred Launch Mode",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    AiLaunchMode.entries.forEach { mode ->
+                        val isSelected = settings.defaultAiMode == mode
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable {
+                                    settingsRepository.setDefaultAiMode(mode)
+                                },
+                            color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = mode.label,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = when (mode) {
+                                            AiLaunchMode.VOICE_DICTATION -> "Direct voice prompt & dictation input box"
+                                            AiLaunchMode.TEXT_CHAT -> "Open app main text chat window"
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                if (isSelected) {
+                                    Text("✓", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAiAssistantPicker = false }) {
+                    Text("Done")
+                }
+            }
+        )
+    }
+
+    if (choosingAppForAiAssistant) {
+        AppPickerDialog(
+            apps = apps,
+            onDismiss = { choosingAppForAiAssistant = false },
+            onAppSelected = { app ->
+                settingsRepository.setDefaultAiAppPackage(app.packageName)
+                choosingAppForAiAssistant = false
+            }
+        )
+    }
+
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
@@ -351,7 +648,7 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
                 .navigationBarsPadding()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(scrollState)
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
@@ -408,6 +705,21 @@ fun SettingsScreen(
                     checked = settings.themePalette.isMonochrome,
                     onCheckedChange = { checked ->
                         settingsRepository.setMonochromeMode(checked)
+                    }
+                )
+
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant
+                )
+
+                val animationLevels = AnimationLevel.entries
+                val selectedAnimIndex = animationLevels.indexOf(settings.animationLevel).let { if (it == -1) 2 else it }
+                SegmentedPreference(
+                    title = "Animation level",
+                    options = animationLevels.map { it.label },
+                    selectedIndex = selectedAnimIndex,
+                    onSelected = { index ->
+                        settingsRepository.setAnimationLevel(animationLevels[index])
                     }
                 )
             }
@@ -500,20 +812,33 @@ fun SettingsScreen(
                             settingsRepository.setClock24Hour(checked)
                         }
                     )
-
-                    HorizontalDivider(
-                        color = MaterialTheme.colorScheme.outlineVariant
-                    )
-
-                    SwitchPreferenceItem(
-                        title = "Show date",
-                        subtitle = "Display current date below the clock.",
-                        checked = settings.showDate,
-                        onCheckedChange = { checked ->
-                            settingsRepository.setShowDate(checked)
-                        }
-                    )
                 }
+
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant
+                )
+
+                SwitchPreferenceItem(
+                    title = "Show date",
+                    subtitle = "Display current date on the home screen.",
+                    checked = settings.showDate,
+                    onCheckedChange = { checked ->
+                        settingsRepository.setShowDate(checked)
+                    }
+                )
+
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant
+                )
+
+                SwitchPreferenceItem(
+                    title = "Hide status bar on home screen",
+                    subtitle = "Hide the system status bar while on the home screen for an immersive view.",
+                    checked = settings.hideStatusBarOnHomeScreen,
+                    onCheckedChange = { checked ->
+                        settingsRepository.setHideStatusBarOnHomeScreen(checked)
+                    }
+                )
 
                 HorizontalDivider(
                     color = MaterialTheme.colorScheme.outlineVariant
@@ -859,10 +1184,38 @@ fun SettingsScreen(
                 if (settings.enabledProviders.contains(SearchType.GOOGLE_OVERVIEW)) {
                     PreferenceItem(
                         title = "Gemini API Key",
-                        subtitle = if (settings.geminiApiKey.isNotBlank()) "Configured (Personal key active)" else "Not set (Using default DuckDuckGo summaries)",
+                        subtitle = if (settings.geminiApiKey.isNotBlank()) "Configured (Personal key active)" else "Not set (Using default DuckDuckGo & Wikipedia summaries)",
                         onClick = { showGeminiKeyDialog = true }
                     )
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+                    val historyCount = settings.aiOverviewHistory.size
+                    PreferenceItem(
+                        title = "AI Overview History",
+                        subtitle = if (historyCount == 0) "No search history recorded" else "$historyCount recent overview${if (historyCount == 1) "" else "s"} — tap to view",
+                        onClick = { showAiHistoryDialog = true }
+                    )
                 }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+                PreferenceItem(
+                    title = "Long-press Search AI Assistant",
+                    subtitle = when (settings.defaultAiAppPackage) {
+                        "com.google.android.apps.bard" -> "Google Gemini (${settings.defaultAiMode.label})"
+                        "com.openai.chatgpt" -> "ChatGPT (${settings.defaultAiMode.label})"
+                        "com.anthropic.claude" -> "Claude (${settings.defaultAiMode.label})"
+                        "ai.perplexity.app.android" -> "Perplexity (${settings.defaultAiMode.label})"
+                        "com.microsoft.copilot" -> "Microsoft Copilot (${settings.defaultAiMode.label})"
+                        "" -> "Default Voice / Assistant (${settings.defaultAiMode.label})"
+                        else -> {
+                            val appName = apps.firstOrNull { it.matchesIdentifier(settings.defaultAiAppPackage) }?.label ?: settings.defaultAiAppPackage
+                            "$appName (${settings.defaultAiMode.label})"
+                        }
+                    },
+                    onClick = { showAiAssistantPicker = true }
+                )
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 

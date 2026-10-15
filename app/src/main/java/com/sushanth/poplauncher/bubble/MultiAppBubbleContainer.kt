@@ -48,6 +48,10 @@ import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -58,11 +62,13 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import androidx.compose.ui.graphics.toArgb
 import com.sushanth.poplauncher.data.model.AppEntity
 import com.sushanth.poplauncher.data.model.BubbleConfig
 import com.sushanth.poplauncher.ui.theme.DarkOnBackground
 import com.sushanth.poplauncher.ui.theme.LocalIsMonochromeTheme
 import com.sushanth.poplauncher.util.drawableToBitmap
+import com.sushanth.poplauncher.util.extractDominantColor
 import kotlin.math.hypot
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -72,6 +78,9 @@ fun MultiAppBubbleContainer(
     bubbleConfig: BubbleConfig,
     getAppIcon: (String, UserHandle?) -> Drawable?,
     modifier: Modifier = Modifier,
+    searchObstaclePosition: Offset? = null,
+    searchObstacleRadius: Float = 0f,
+    searchObstacleVelocity: Offset = Offset.Zero,
     onDismiss: () -> Unit = {},
     onAppLaunch: (AppEntity) -> Unit,
 ) {
@@ -104,6 +113,20 @@ fun MultiAppBubbleContainer(
 
     LaunchedEffect(bubbleConfig) {
         physicsEngine.updateConfig(bubbleConfig)
+    }
+
+    LaunchedEffect(searchObstaclePosition, searchObstacleRadius, searchObstacleVelocity) {
+        if (searchObstaclePosition != null && searchObstacleRadius > 0f) {
+            physicsEngine.updateObstacle(
+                searchObstaclePosition.x,
+                searchObstaclePosition.y,
+                searchObstacleRadius,
+                searchObstacleVelocity.x,
+                searchObstacleVelocity.y
+            )
+        } else {
+            physicsEngine.clearObstacle()
+        }
     }
 
     LaunchedEffect(screenBounds) {
@@ -144,10 +167,16 @@ fun MultiAppBubbleContainer(
             .onGloballyPositioned { coords ->
                 val w = coords.size.width.toFloat()
                 val h = coords.size.height.toFloat()
-                val minX = 24f
-                val maxX = (w - bubbleSizePx - 24f).coerceAtLeast(minX)
-                val minY = with(density) { 90.dp.toPx() }
-                val maxY = (h - bubbleSizePx - with(density) { 100.dp.toPx() }).coerceAtLeast(minY)
+                val labelExtraWidthPx = with(density) { 36.dp.toPx() }
+                val labelExtraHeightPx = with(density) { 34.dp.toPx() }
+                val horizontalMarginPx = with(density) { 16.dp.toPx() }
+                val topMarginPx = with(density) { 80.dp.toPx() }
+                val bottomMarginPx = with(density) { 90.dp.toPx() }
+
+                val minX = horizontalMarginPx
+                val maxX = (w - bubbleSizePx - labelExtraWidthPx - horizontalMarginPx).coerceAtLeast(minX)
+                val minY = topMarginPx
+                val maxY = (h - bubbleSizePx - labelExtraHeightPx - bottomMarginPx).coerceAtLeast(minY)
                 screenBounds = floatArrayOf(minX, maxX, minY, maxY)
             }
     ) {
@@ -211,11 +240,13 @@ private fun PhysicalBubbleItem(
                 scaleY = pulseScale.value
             }
             .size(bubbleSizeDp + 36.dp)
-            .clickable(
-                onClickLabel = "Launch ${body.app.title}",
+            .semantics {
                 role = Role.Button
-            ) {
-                onAppLaunch(body.app)
+                contentDescription = "Floating bubble for ${body.app.title}"
+                onClick(label = "Launch ${body.app.title}") {
+                    onAppLaunch(body.app)
+                    true
+                }
             }
             .pointerInput(body.app.id) {
                 awaitEachGesture {
@@ -265,6 +296,41 @@ private fun PhysicalBubbleItem(
                 }
             }
     ) {
+        val accentColor = MaterialTheme.colorScheme.primary
+        val secondaryColor = MaterialTheme.colorScheme.secondary
+        val logoColor = remember(appBitmap, accentColor, secondaryColor) {
+            if (appBitmap != null && !appBitmap.isRecycled) {
+                Color(extractDominantColor(appBitmap, accentColor.toArgb()))
+            } else {
+                secondaryColor
+            }
+        }
+
+        val bubbleBackgroundBrush = remember(accentColor, logoColor) {
+            val middleBlend = Color(
+                red = (logoColor.red * 0.45f + accentColor.red * 0.55f),
+                green = (logoColor.green * 0.45f + accentColor.green * 0.55f),
+                blue = (logoColor.blue * 0.45f + accentColor.blue * 0.55f),
+                alpha = 0.94f
+            )
+            Brush.radialGradient(
+                colors = listOf(
+                    logoColor.copy(alpha = 0.90f),
+                    middleBlend,
+                    accentColor.copy(alpha = 0.98f)
+                )
+            )
+        }
+
+        val bubbleBorderBrush = remember(accentColor, logoColor) {
+            Brush.linearGradient(
+                listOf(
+                    accentColor.copy(alpha = 0.95f),
+                    logoColor.copy(alpha = 0.85f)
+                )
+            )
+        }
+
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
@@ -272,28 +338,16 @@ private fun PhysicalBubbleItem(
                 .shadow(
                     elevation = 14.dp,
                     shape = CircleShape,
-                    ambientColor = MaterialTheme.colorScheme.primaryContainer,
-                    spotColor = MaterialTheme.colorScheme.primary
+                    ambientColor = logoColor.copy(alpha = 0.5f),
+                    spotColor = accentColor
                 )
                 .background(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            MaterialTheme.colorScheme.secondary.copy(alpha = 0.85f),
-                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.92f),
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.98f)
-                        )
-                    ),
+                    brush = bubbleBackgroundBrush,
                     shape = CircleShape
                 )
                 .border(
                     width = 2.dp,
-                    brush = Brush.linearGradient(
-                        listOf(
-                            MaterialTheme.colorScheme.secondary.copy(alpha = 0.9f),
-                            MaterialTheme.colorScheme.tertiary.copy(alpha = 0.7f),
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
-                        )
-                    ),
+                    brush = bubbleBorderBrush,
                     shape = CircleShape
                 )
         ) {

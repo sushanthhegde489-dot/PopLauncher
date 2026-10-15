@@ -8,6 +8,7 @@
 - [`gradle/libs.versions.toml`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/gradle/libs.versions.toml): Version catalog for Compose, Kotlin, AndroidX, and build plugins.
 - [`CUSTOM_WIDGETS.md`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/CUSTOM_WIDGETS.md): Documentation on custom widgets and JSON schema specifications.
 - [`PLAY_STORE_RELEASE.md`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/PLAY_STORE_RELEASE.md): Checklist and guidelines for Play Store compliance and production release.
+- [`privacy-policy.html`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/privacy-policy.html): Hosted Privacy Policy page compliant with Google Play Store User Data policies.
 - [`fixes.md`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/fixes.md): Detailed changelog of bug fixes, memory leak resolutions, and performance optimizations.
 - [`filemap.md`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/filemap.md): Project structure and architectural map.
 
@@ -27,23 +28,23 @@
 - [`MainActivity.kt`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/app/src/main/java/com/sushanth/poplauncher/MainActivity.kt): Core entry point, window insets, system gestures, and root Composable navigation setup.
 
 ### Bubble Physics & Floating UI (`bubble/`)
-- [`BubblePhysicsEngine.kt`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/app/src/main/java/com/sushanth/poplauncher/bubble/BubblePhysicsEngine.kt): Single bubble motion, collision boundaries, and frame delta time.
-- [`MultiBubblePhysicsEngine.kt`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/app/src/main/java/com/sushanth/poplauncher/bubble/MultiBubblePhysicsEngine.kt): Physics simulation handling inter-bubble collision and velocity damping.
-- [`FloatingAppBubble.kt`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/app/src/main/java/com/sushanth/poplauncher/bubble/FloatingAppBubble.kt): Composable bubble rendering, touch handling, and drag gestures.
-- [`MultiAppBubbleContainer.kt`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/app/src/main/java/com/sushanth/poplauncher/bubble/MultiAppBubbleContainer.kt): Surface hosting multiple floating app bubbles with continuous frame loop.
+- [`BubblePhysicsEngine.kt`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/app/src/main/java/com/sushanth/poplauncher/bubble/BubblePhysicsEngine.kt): Single bubble motion, label-safe boundary collisions, and kinematic rigid obstacle deflection (search icon collider).
+- [`MultiBubblePhysicsEngine.kt`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/app/src/main/java/com/sushanth/poplauncher/bubble/MultiBubblePhysicsEngine.kt): Multi-body physics simulation handling inter-bubble collisions, velocity damping, and kinematic rigid obstacle deflection.
+- [`FloatingAppBubble.kt`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/app/src/main/java/com/sushanth/poplauncher/bubble/FloatingAppBubble.kt): Composable bubble rendering, label-safe boundary margins, stage transitions, and search obstacle collision integration.
+- [`MultiAppBubbleContainer.kt`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/app/src/main/java/com/sushanth/poplauncher/bubble/MultiAppBubbleContainer.kt): Surface hosting multiple floating app bubbles with logo-to-accent dynamic color gradients, boundary margin clamping, and search obstacle deflection.
 - [`GravityIconPhysicsEngine.kt`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/app/src/main/java/com/sushanth/poplauncher/bubble/GravityIconPhysicsEngine.kt): Accelerometer / tilt-driven gravity simulation for icons.
 - [`PopParticles.kt`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/app/src/main/java/com/sushanth/poplauncher/bubble/PopParticles.kt): Particle effects triggered on bubble bursting and interactions.
-- [`MazeChallengeOverlay.kt`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/app/src/main/java/com/sushanth/poplauncher/bubble/MazeChallengeOverlay.kt): Intentional friction maze challenge before opening distraction apps.
+- [`MazeChallengeOverlay.kt`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/app/src/main/java/com/sushanth/poplauncher/bubble/MazeChallengeOverlay.kt): Direct home screen friction overlay replacing modal cards with minimalistic interactive dotted trail waypoints and haptics.
 
 ### Home & Navigation (`home/`)
-- [`HomeScreen.kt`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/app/src/main/java/com/sushanth/poplauncher/home/HomeScreen.kt): Main launcher workspace, app grid/list, swipe triggers, and gestures.
+- [`HomeScreen.kt`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/app/src/main/java/com/sushanth/poplauncher/home/HomeScreen.kt): Main launcher workspace, real-time clock synchronization (tick & broadcast receiver), back button navigation from search/widget pages to home, search obstacle coordinate streaming, and system assistant voice/text overlay invocation.
 - [`HomeContextMenu.kt`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/app/src/main/java/com/sushanth/poplauncher/home/HomeContextMenu.kt): Long-press popups for apps (hide, pin, group, info, uninstall).
 - [`OnboardingSearchSetupOverlay.kt`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/app/src/main/java/com/sushanth/poplauncher/home/OnboardingSearchSetupOverlay.kt): First-run onboarding for permissions and search engine setup.
 
 ### Search (`search/`)
-- [`SearchOverlay.kt`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/app/src/main/java/com/sushanth/poplauncher/search/SearchOverlay.kt): Fullscreen universal search overlay with fluid animations.
+- [`SearchOverlay.kt`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/app/src/main/java/com/sushanth/poplauncher/search/SearchOverlay.kt): Ergonomic bottom-anchored search overlay with search results on top, category chips in middle, and search bar above soft keyboard with `.imePadding()`.
 - [`SearchField.kt`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/app/src/main/java/com/sushanth/poplauncher/search/SearchField.kt): Minimalist search input field with query debouncing.
-- [`SearchResultsList.kt`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/app/src/main/java/com/sushanth/poplauncher/search/SearchResultsList.kt): Sectioned list showing categorized query results.
+- [`SearchResultsList.kt`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/app/src/main/java/com/sushanth/poplauncher/search/SearchResultsList.kt): Sectioned list with staggered spring entrance animations, item placement animations, and on-demand AI Overview category chips.
 - [`SearchResultItem.kt`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/app/src/main/java/com/sushanth/poplauncher/search/SearchResultItem.kt): Individual search item view with actionable deep links.
 
 ### Data Layer (`data/`)
@@ -103,3 +104,4 @@
 - [`SearchFrictionLogicTest.kt`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/app/src/test/java/com/sushanth/poplauncher/SearchFrictionLogicTest.kt): Friction and intentional delay tests.
 - [`SmartSearchAndFrictionTest.kt`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/app/src/test/java/com/sushanth/poplauncher/SmartSearchAndFrictionTest.kt): End-to-end search tests.
 - [`NewFeaturesUnitTest.kt`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/app/src/test/java/com/sushanth/poplauncher/NewFeaturesUnitTest.kt): General regression unit tests.
+- [`SearchAndUxFeaturesTest.kt`](file:///home/sushanth/AndroidStudioProjects/PopLauncher/app/src/test/java/com/sushanth/poplauncher/SearchAndUxFeaturesTest.kt): Animation levels, AI assistant launch modes, AI history persistence, and category chip tests.

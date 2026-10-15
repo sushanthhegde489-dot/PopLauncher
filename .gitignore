@@ -21,4 +21,4 @@ local.properties
 # Temporary / Scratch artifacts
 app/app.zip
 payload.json
-fixes.md
+filemap.md

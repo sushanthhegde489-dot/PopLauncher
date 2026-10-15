@@ -109,13 +109,22 @@ class MediaSearchProvider(
         val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC"
 
         try {
-            val queryArgs = Bundle().apply {
-                putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
-                putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, selectionArgs)
-                putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, sortOrder)
-                putInt(ContentResolver.QUERY_ARG_LIMIT, 15)
+            val cursor = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                try {
+                    val queryArgs = Bundle().apply {
+                        putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
+                        putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, selectionArgs)
+                        putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, sortOrder)
+                        putInt(ContentResolver.QUERY_ARG_LIMIT, 15)
+                    }
+                    context.contentResolver.query(imageUri, projection, queryArgs, null)
+                } catch (_: Exception) {
+                    context.contentResolver.query(imageUri, projection, selection, selectionArgs, sortOrder)
+                }
+            } else {
+                context.contentResolver.query(imageUri, projection, selection, selectionArgs, sortOrder)
             }
-            context.contentResolver.query(imageUri, projection, queryArgs, null)?.use { cursor ->
+            cursor?.use { cursor ->
                 val idIdx = cursor.getColumnIndex(MediaStore.Images.Media._ID)
                 val nameIdx = cursor.getColumnIndex(MediaStore.Images.Media.DISPLAY_NAME)
                 val mimeIdx = cursor.getColumnIndex(MediaStore.Images.Media.MIME_TYPE)
@@ -205,13 +214,22 @@ class MediaSearchProvider(
         val sortOrder = "${MediaStore.Video.Media.DATE_ADDED} DESC"
 
         try {
-            val queryArgs = Bundle().apply {
-                putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
-                putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, selectionArgs)
-                putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, sortOrder)
-                putInt(ContentResolver.QUERY_ARG_LIMIT, 15)
+            val cursor = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                try {
+                    val queryArgs = Bundle().apply {
+                        putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
+                        putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, selectionArgs)
+                        putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, sortOrder)
+                        putInt(ContentResolver.QUERY_ARG_LIMIT, 15)
+                    }
+                    context.contentResolver.query(videoUri, projection, queryArgs, null)
+                } catch (_: Exception) {
+                    context.contentResolver.query(videoUri, projection, selection, selectionArgs, sortOrder)
+                }
+            } else {
+                context.contentResolver.query(videoUri, projection, selection, selectionArgs, sortOrder)
             }
-            context.contentResolver.query(videoUri, projection, queryArgs, null)?.use { cursor ->
+            cursor?.use { cursor ->
                 val idIdx = cursor.getColumnIndex(MediaStore.Video.Media._ID)
                 val nameIdx = cursor.getColumnIndex(MediaStore.Video.Media.DISPLAY_NAME)
                 val mimeIdx = cursor.getColumnIndex(MediaStore.Video.Media.MIME_TYPE)

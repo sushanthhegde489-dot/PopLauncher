@@ -49,6 +49,33 @@ class MultiBubblePhysicsEngine(
     var isInitialized: Boolean = false
         private set
 
+    var obstacleX: Float = 0f
+        private set
+    var obstacleY: Float = 0f
+        private set
+    var obstacleRadius: Float = 0f
+        private set
+    var obstacleVx: Float = 0f
+        private set
+    var obstacleVy: Float = 0f
+        private set
+    var hasObstacle: Boolean = false
+        private set
+
+    fun updateObstacle(centerX: Float, centerY: Float, radius: Float, vx: Float = 0f, vy: Float = 0f) {
+        this.obstacleX = centerX
+        this.obstacleY = centerY
+        this.obstacleRadius = radius
+        this.obstacleVx = vx
+        this.obstacleVy = vy
+        this.hasObstacle = radius > 0f
+    }
+
+    fun clearObstacle() {
+        this.hasObstacle = false
+        this.obstacleRadius = 0f
+    }
+
     val bodies: List<BubbleBody> = apps.mapIndexed { index, app ->
         BubbleBody(app = app, seedIndex = index)
     }
@@ -154,8 +181,28 @@ class MultiBubblePhysicsEngine(
 
     fun updateDrag(id: String, newPosX: Float, newPosY: Float) {
         val body = bodies.firstOrNull { it.app.id == id } ?: return
-        body.posX = newPosX.coerceIn(minBoundX, maxBoundX)
-        body.posY = newPosY.coerceIn(minBoundY, maxBoundY)
+        var targetX = newPosX.coerceIn(minBoundX, maxBoundX)
+        var targetY = newPosY.coerceIn(minBoundY, maxBoundY)
+
+        if (hasObstacle && obstacleRadius > 0f) {
+            val centerBx = targetX + (bubbleSizePx / 2f)
+            val centerBy = targetY + (bubbleSizePx / 2f)
+            val dx = centerBx - obstacleX
+            val dy = centerBy - obstacleY
+            val distSq = dx * dx + dy * dy
+            val hitDist = (collisionDiameter * 0.48f) + obstacleRadius
+            if (distSq < hitDist * hitDist) {
+                val dist = sqrt(distSq).coerceAtLeast(0.001f)
+                val nx = dx / dist
+                val ny = dy / dist
+                val overlap = hitDist - dist
+                targetX += nx * overlap
+                targetY += ny * overlap
+            }
+        }
+
+        body.posX = targetX.coerceIn(minBoundX, maxBoundX)
+        body.posY = targetY.coerceIn(minBoundY, maxBoundY)
     }
 
     fun releaseDrag(id: String, flingVx: Float, flingVy: Float) {
@@ -231,6 +278,46 @@ class MultiBubblePhysicsEngine(
         // 2. Resolve bubble-to-bubble collisions (2 solver iterations for high physical stability)
         for (iter in 0 until 2) {
             resolvePairCollisions(updateVelocities = (iter == 0))
+        }
+
+        // 2b. Solid kinematic obstacle collision (Search icon hits and deflects app bubbles)
+        if (hasObstacle && obstacleRadius > 0f) {
+            val bubbleRadius = (collisionDiameter / 2f)
+            val hitDist = bubbleRadius + obstacleRadius
+            val hitDistSq = hitDist * hitDist
+            for (body in bodies) {
+                if (body.isDragging) continue
+                val centerBx = body.posX + (bubbleSizePx / 2f)
+                val centerBy = body.posY + (bubbleSizePx / 2f)
+                val dx = centerBx - obstacleX
+                val dy = centerBy - obstacleY
+                val distSq = dx * dx + dy * dy
+                if (distSq < hitDistSq) {
+                    val dist = sqrt(distSq).coerceAtLeast(0.001f)
+                    val nx = dx / dist
+                    val ny = dy / dist
+                    val overlap = hitDist - dist
+
+                    body.posX += nx * overlap
+                    body.posY += ny * overlap
+
+                    val relVx = body.velX - obstacleVx
+                    val relVy = body.velY - obstacleVy
+                    val vDot = relVx * nx + relVy * ny
+
+                    if (vDot < 0f) {
+                        val bounce = (config.edgeBounce * 1.05f).coerceIn(0.75f, 1.15f)
+                        body.velX -= (1f + bounce) * vDot * nx
+                        body.velY -= (1f + bounce) * vDot * ny
+                    }
+
+                    val obstacleSpeed = sqrt(obstacleVx * obstacleVx + obstacleVy * obstacleVy)
+                    if (obstacleSpeed > 5f) {
+                        body.velX += obstacleVx * 0.4f
+                        body.velY += obstacleVy * 0.4f
+                    }
+                }
+            }
         }
 
         // 3. Wall collisions & clamping

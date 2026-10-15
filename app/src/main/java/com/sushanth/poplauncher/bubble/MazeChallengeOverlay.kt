@@ -6,34 +6,23 @@ import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.Flag
-import androidx.compose.material.icons.outlined.SportsEsports
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -49,9 +38,6 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
@@ -65,6 +51,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.sushanth.poplauncher.data.model.AppEntity
 import com.sushanth.poplauncher.data.model.SearchEntity
 import com.sushanth.poplauncher.ui.theme.LocalIsMonochromeTheme
@@ -84,6 +71,10 @@ fun MazeChallengeOverlay(
     val context = LocalContext.current
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
+
+    BackHandler {
+        onDismiss()
+    }
 
     val vibrator = remember {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -106,15 +97,14 @@ fun MazeChallengeOverlay(
         iconDrawable?.let { drawableToBitmap(it, isMonochrome) }
     }
 
-    // Maze Dimensions (280dp x 340dp)
-    val mazeWidthDp = 280.dp
-    val mazeHeightDp = 340.dp
+    // Maze Dimensions right on Home Screen (300dp x 380dp)
+    val mazeWidthDp = 300.dp
+    val mazeHeightDp = 380.dp
     val mazeWidthPx = with(density) { mazeWidthDp.toPx() }
     val mazeHeightPx = with(density) { mazeHeightDp.toPx() }
 
-    val corridorWidthPx = with(density) { 56.dp.toPx() }
     val iconRadiusPx = with(density) { 26.dp.toPx() }
-    val flagHalfSizePx = with(density) { 16.dp.toPx() }
+    val corridorWidthPx = with(density) { 56.dp.toPx() }
 
     // Procedurally generated random maze waypoints on each launch
     val waypoints = remember(mazeWidthPx, mazeHeightPx) {
@@ -123,247 +113,205 @@ fun MazeChallengeOverlay(
     val startNode = waypoints.first()
     val goalNode = waypoints.last()
 
+    // Generate minimalistic discrete dots along the waypoints path
+    val dots = remember(waypoints) {
+        val sampled = mutableListOf<Offset>()
+        val spacingPx = with(density) { 20.dp.toPx() }
+        for (i in 0 until waypoints.size - 1) {
+            val p1 = waypoints[i]
+            val p2 = waypoints[i + 1]
+            val dx = p2.x - p1.x
+            val dy = p2.y - p1.y
+            val segLen = hypot(dx, dy)
+            val count = (segLen / spacingPx).roundToInt().coerceAtLeast(1)
+            for (step in 0 until count) {
+                val t = step.toFloat() / count.toFloat()
+                sampled.add(Offset(p1.x + dx * t, p1.y + dy * t))
+            }
+        }
+        sampled.add(waypoints.last())
+        sampled
+    }
+
     val animX = remember(startNode) { Animatable(startNode.x) }
     val animY = remember(startNode) { Animatable(startNode.y) }
 
     var isSuccess by remember { mutableStateOf(false) }
 
+    // Renders transparently directly over the home screen
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.82f))
-            .clickable(enabled = false) {},
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) {
+                onDismiss()
+            },
         contentAlignment = Alignment.Center
     ) {
-        Surface(
+        // Minimalist prompt pill at the top of the home screen
+        Box(
             modifier = Modifier
-                .size(mazeWidthDp + 24.dp, mazeHeightDp + 90.dp),
-            shape = RoundedCornerShape(28.dp),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 12.dp,
-            border = BorderStroke(
-                1.5.dp,
-                MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
-            )
+                .align(Alignment.TopCenter)
+                .padding(top = 96.dp)
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.88f), CircleShape)
+                .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f), CircleShape)
+                .padding(horizontal = 18.dp, vertical = 7.dp)
         ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                // Header
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.SportsEsports,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(22.dp)
-                        )
-                        Text(
-                            text = "Mindful Maze Navigation",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+            Text(
+                text = "Follow the dots to open ${app.title}",
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
 
-                    IconButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Close,
-                            contentDescription = "Cancel",
-                            modifier = Modifier.size(20.dp)
-                        )
+        // Minimalistic Dots & Target Playground (Right on Home Screen)
+        Box(
+            modifier = Modifier
+                .size(mazeWidthDp, mazeHeightDp)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) {
+                    // Consume clicks inside the playground
+                }
+        ) {
+            val primaryColor = MaterialTheme.colorScheme.primary
+            val dotRadiusPx = with(density) { 3.5.dp.toPx() }
+
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val currentPos = Offset(animX.value, animY.value)
+
+                // Minimalistic Dots along the path
+                for (dot in dots) {
+                    val distToToken = hypot(currentPos.x - dot.x, currentPos.y - dot.y)
+                    val isNear = distToToken <= iconRadiusPx * 1.3f
+
+                    val dotColor = if (isNear) {
+                        primaryColor
+                    } else {
+                        primaryColor.copy(alpha = 0.45f)
                     }
+                    val radius = if (isNear) dotRadiusPx * 1.35f else dotRadiusPx
+
+                    drawCircle(
+                        color = dotColor,
+                        radius = radius,
+                        center = dot
+                    )
                 }
 
-                Text(
-                    text = "Drag ${app.title} along the path to the finish flag to open.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                // Minimalistic Finish Target
+                drawCircle(
+                    color = Color(0xFF4CAF50).copy(alpha = 0.25f),
+                    radius = iconRadiusPx * 1.15f,
+                    center = goalNode
                 )
+                drawCircle(
+                    color = Color(0xFF4CAF50),
+                    radius = iconRadiusPx * 0.75f,
+                    center = goalNode,
+                    style = Stroke(width = 2.5f)
+                )
+                drawCircle(
+                    color = Color(0xFF4CAF50),
+                    radius = dotRadiusPx * 1.5f,
+                    center = goalNode
+                )
+            }
 
-                // Maze Playground Canvas & Drag Target
-                Box(
-                    modifier = Modifier
-                        .size(mazeWidthDp, mazeHeightDp)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.7f))
-                        .border(
-                            1.dp,
-                            MaterialTheme.colorScheme.outlineVariant,
-                            RoundedCornerShape(20.dp)
+            // Draggable App Icon
+            Box(
+                modifier = Modifier
+                    .offset {
+                        IntOffset(
+                            (animX.value - iconRadiusPx).roundToInt(),
+                            (animY.value - iconRadiusPx).roundToInt()
                         )
-                ) {
-                    val path = remember(waypoints) {
-                        Path().apply {
-                            moveTo(waypoints.first().x, waypoints.first().y)
-                            for (i in 1 until waypoints.size) {
-                                lineTo(waypoints[i].x, waypoints[i].y)
-                            }
+                    }
+                    .size(52.dp)
+                    .shadow(12.dp, CircleShape, spotColor = MaterialTheme.colorScheme.primary)
+                    .background(
+                        brush = Brush.radialGradient(
+                            listOf(
+                                MaterialTheme.colorScheme.secondary.copy(alpha = 0.6f),
+                                MaterialTheme.colorScheme.primaryContainer
+                            )
+                        ),
+                        shape = CircleShape
+                    )
+                    .border(1.5.dp, MaterialTheme.colorScheme.primary, CircleShape)
+                    .semantics {
+                        role = Role.Button
+                        contentDescription = "Draggable token for ${app.title}. Follow the dots to complete."
+                        onClick(label = "Complete maze and launch ${app.title}") {
+                            isSuccess = true
+                            triggerHeavyHaptic(vibrator)
+                            onSuccess(app)
+                            true
                         }
                     }
+                    .pointerInput(waypoints) {
+                        detectDragGestures(
+                            onDragStart = {
+                                triggerLightHaptic(vibrator)
+                            },
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                if (isSuccess) return@detectDragGestures
 
-                    // Draw Maze Path Corridors and Goal Target
-                    Canvas(modifier = Modifier.fillMaxSize()) {
-                        // Background Path Corridor (Outer Wall Border)
-                        drawPath(
-                            path = path,
-                            color = Color.DarkGray.copy(alpha = 0.5f),
-                            style = Stroke(
-                                width = corridorWidthPx + 6f,
-                                cap = StrokeCap.Round,
-                                join = StrokeJoin.Round
-                            )
-                        )
+                                val newX = animX.value + dragAmount.x
+                                val newY = animY.value + dragAmount.y
+                                val currentPos = Offset(newX, newY)
 
-                        // Open Inner Path Corridor
-                        drawPath(
-                            path = path,
-                            color = Color.LightGray.copy(alpha = 0.25f),
-                            style = Stroke(
-                                width = corridorWidthPx,
-                                cap = StrokeCap.Round,
-                                join = StrokeJoin.Round
-                            )
-                        )
+                                // Check if touch is inside the dots corridor
+                                val distToPath = minDistanceToPath(currentPos, waypoints)
+                                val maxAllowedDist = (corridorWidthPx / 2f) - (iconRadiusPx * 0.35f)
 
-                        // Goal Node Glowing Circle
-                        drawCircle(
-                            color = Color(0xFF4CAF50).copy(alpha = 0.35f),
-                            radius = corridorWidthPx * 0.65f,
-                            center = goalNode
-                        )
-                        drawCircle(
-                            color = Color(0xFF4CAF50),
-                            radius = corridorWidthPx * 0.45f,
-                            center = goalNode,
-                            style = Stroke(width = 3f)
-                        )
-                    }
+                                if (distToPath <= maxAllowedDist) {
+                                    scope.launch {
+                                        animX.snapTo(newX)
+                                        animY.snapTo(newY)
+                                    }
 
-                    // Goal Target Flag Icon
-                    Box(
-                        modifier = Modifier
-                            .offset {
-                                IntOffset(
-                                    (goalNode.x - flagHalfSizePx).roundToInt(),
-                                    (goalNode.y - flagHalfSizePx).roundToInt()
-                                )
-                            }
-                            .size(32.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Flag,
-                            contentDescription = "Goal",
-                            tint = Color(0xFF2E7D32),
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-
-                    // Draggable Popped App Icon
-                    Box(
-                        modifier = Modifier
-                            .offset {
-                                IntOffset(
-                                    (animX.value - iconRadiusPx).roundToInt(),
-                                    (animY.value - iconRadiusPx).roundToInt()
-                                )
-                            }
-                            .size(52.dp)
-                            .shadow(12.dp, CircleShape, spotColor = MaterialTheme.colorScheme.primary)
-                            .background(
-                                brush = Brush.radialGradient(
-                                    listOf(
-                                        MaterialTheme.colorScheme.secondary.copy(alpha = 0.5f),
-                                        MaterialTheme.colorScheme.primaryContainer
-                                    )
-                                ),
-                                shape = CircleShape
-                            )
-                            .border(1.5.dp, MaterialTheme.colorScheme.primary, CircleShape)
-                            .semantics {
-                                role = Role.Button
-                                contentDescription = "Draggable token for ${app.title}. Navigate maze or activate to complete."
-                                onClick(label = "Complete maze and launch ${app.title}") {
-                                    isSuccess = true
-                                    triggerHeavyHaptic(vibrator)
-                                    onSuccess(app)
-                                    true
+                                    // Check Goal Reach
+                                    val distToGoal = hypot(newX - goalNode.x, newY - goalNode.y)
+                                    if (distToGoal <= (iconRadiusPx * 1.2f)) {
+                                        isSuccess = true
+                                        triggerHeavyHaptic(vibrator)
+                                        onSuccess(app)
+                                    }
+                                } else {
+                                    // Off the dots path! Reset to Start
+                                    triggerWallCollisionHaptic(vibrator)
+                                    scope.launch {
+                                        launch { animX.animateTo(startNode.x, spring()) }
+                                        launch { animY.animateTo(startNode.y, spring()) }
+                                    }
+                                }
+                            },
+                            onDragEnd = {
+                                if (!isSuccess) {
+                                    scope.launch {
+                                        launch { animX.animateTo(startNode.x, spring()) }
+                                        launch { animY.animateTo(startNode.y, spring()) }
+                                    }
                                 }
                             }
-                            .pointerInput(waypoints) {
-                                detectDragGestures(
-                                    onDragStart = {
-                                        triggerLightHaptic(vibrator)
-                                    },
-                                    onDrag = { change, dragAmount ->
-                                        change.consume()
-                                        if (isSuccess) return@detectDragGestures
-
-                                        val newX = animX.value + dragAmount.x
-                                        val newY = animY.value + dragAmount.y
-                                        val currentPos = Offset(newX, newY)
-
-                                        // Check if touch is inside the corridor
-                                        val distToPath = minDistanceToPath(currentPos, waypoints)
-                                        val maxAllowedDist = (corridorWidthPx / 2f) - (iconRadiusPx * 0.35f)
-
-                                        if (distToPath <= maxAllowedDist) {
-                                            // Valid move along the path
-                                            scope.launch {
-                                                animX.snapTo(newX)
-                                                animY.snapTo(newY)
-                                            }
-
-                                            // Check Goal Reach
-                                            val distToGoal = hypot(newX - goalNode.x, newY - goalNode.y)
-                                            if (distToGoal <= (iconRadiusPx * 1.2f)) {
-                                                isSuccess = true
-                                                triggerHeavyHaptic(vibrator)
-                                                onSuccess(app)
-                                            }
-                                        } else {
-                                            // Wall Collision! Reset to Start
-                                            triggerWallCollisionHaptic(vibrator)
-                                            scope.launch {
-                                                launch { animX.animateTo(startNode.x, spring()) }
-                                                launch { animY.animateTo(startNode.y, spring()) }
-                                            }
-                                        }
-                                    },
-                                    onDragEnd = {
-                                        if (!isSuccess) {
-                                            scope.launch {
-                                                launch { animX.animateTo(startNode.x, spring()) }
-                                                launch { animY.animateTo(startNode.y, spring()) }
-                                            }
-                                        }
-                                    }
-                                )
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (appBitmap != null && !appBitmap.isRecycled) {
-                            Image(
-                                bitmap = appBitmap.asImageBitmap(),
-                                contentDescription = app.title,
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .clip(CircleShape)
-                            )
-                        }
-                    }
+                        )
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                if (appBitmap != null && !appBitmap.isRecycled) {
+                    Image(
+                        bitmap = appBitmap.asImageBitmap(),
+                        contentDescription = app.title,
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                    )
                 }
             }
         }
@@ -400,21 +348,21 @@ private fun triggerLightHaptic(vibrator: Vibrator?) {
     }
 }
 
-private fun triggerWallCollisionHaptic(vibrator: Vibrator?) {
-    vibrator?.takeIf { it.hasVibrator() }?.let {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            it.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_DOUBLE_CLICK))
-        } else {
-            @Suppress("DEPRECATION")
-            it.vibrate(40)
-        }
-    }
-}
-
 private fun triggerHeavyHaptic(vibrator: Vibrator?) {
     vibrator?.takeIf { it.hasVibrator() }?.let {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             it.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_HEAVY_CLICK))
+        } else {
+            @Suppress("DEPRECATION")
+            it.vibrate(45)
+        }
+    }
+}
+
+private fun triggerWallCollisionHaptic(vibrator: Vibrator?) {
+    vibrator?.takeIf { it.hasVibrator() }?.let {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            it.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_DOUBLE_CLICK))
         } else {
             @Suppress("DEPRECATION")
             it.vibrate(75)
